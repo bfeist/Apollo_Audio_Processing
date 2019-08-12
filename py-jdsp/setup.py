@@ -8,7 +8,7 @@ setup(name='jdsp',
           'jdsp.io.WaveSink',
           'jdsp.blocks.HighPassFilter',
           'jdsp.blocks.SimpleResampler',
-          'jdsp.blocks.ZeroCrossDetector'
+          'jdsp.blocks.ZeroCrossDetector',
           'jdsp.blocks.RationalResampler'
       ],
       packages = [ 'jdsp' ],
