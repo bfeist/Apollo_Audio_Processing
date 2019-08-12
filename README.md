@@ -2,36 +2,52 @@
 
 Welcome to the Apollo 13 in Real Time processing repository.
 
-1. Install the `jdsp` library in your Python environment.
-  
-  The defluttering script (the only script at the moment) depends on my "JDSP"
-  library, which is included in this repository. You'll need to install it
-  into your Python environment, first. It's very easy to do, just use 'pip'
-  and you'll get everything you need.
+The processing scripts in thie repository depend on a common DSP library
+that I have written, `jdsp`. You'll need to have `jdsp` installed in your Python
+environment before you begin. It's very easy to do, just use 'pip' and you'll
+get everything you need.
 
       cd py-jdsp
       sudo pip install .
 
-2. Run `deflutter`
+## IRIG-B processing / tagging
 
-  `deflutter` is the main processing tool. It will deflutter audio tracks
-  using a source IRIG-B timecode track for flutter and tracking measurements.
-  
-  ```
-  deflutter
-      [-f <max-idle-sec>]
-      [-i]
-      [-s <skip-sec>]
-      [-d <depth>]
-      <timecode-audio-in> <timecode-audio-out>
-      [<audio-file-1-in> <audio-file-1-out> ...]]
-  ```
-  
-  -f -- Stop processing if more than `<max-idle-sec>` seconds elapse without any detected timecode frames.
+You can use `irig_b.py` to inspect an IRIG-B timecode stream and generate labels for
+the timecode frames it finds. The information it generates will be written to stdout.
 
-  -i -- Invert IRIG-B signal before decoding.
+```
+irig_b
+    [-i]
+    [-l]
+    [-b <base>]
+    <wav-file>
+```
+`-i`  Invert audio before processing.
+`-l`  Write Audacity-compatible labels on output.
+`-b`  Translate time for specific mission basis. (Available missions: 'a11', 'a13').
+
+*Note: this script is also incorporated as module for the deflutter script. Keep them together.*
+
+## Tape defluttering
+
+You can use `deflutter.py` to remove flutter and precisely retime audio tracks, provided one of
+those tracks is a dedicated IRIG-B timecode stream.
+
+```
+deflutter
+    [-f <max-idle-sec>]
+    [-i]
+    [-s <skip-sec>]
+    [-d <depth>]
+    <timecode-audio-in> <timecode-audio-out>
+    [<audio-file-1-in> <audio-file-1-out> ...]]
+```
   
-  -d -- De-flutter depth (not usually needed, default=1).
+`-f` -- Stop processing if more than `<max-idle-sec>` seconds elapse without any detected timecode frames.
+
+`-i` -- Invert IRIG-B signal before decoding.
   
-  -s -- Skip `<skip-sec>` seconds from start of all files before processing.
+`-d` -- De-flutter depth (not usually needed, default=1).
+  
+`-s` -- Skip `<skip-sec>` seconds from start of all files before processing.
   ```
