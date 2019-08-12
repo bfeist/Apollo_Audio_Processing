@@ -45,7 +45,8 @@ class ScalableResampler(object):
         side = int(quality / 2)
         
         space = np.linspace(-side, side, taps, endpoint=False)
-        self.sinc = np.sinc(space)
+        lanczos_space = np.linspace(-1, 1, taps, endpoint=False)
+        self.sinc = np.sinc(space) * np.sinc(lanczos_space)
         self.window = len(self.sinc)
         self.history = np.zeros(1, dtype=np.float)
         self.history_d = np.array([taps/2], dtype=np.int)
