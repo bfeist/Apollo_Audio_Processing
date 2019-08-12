@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='jdsp',
-      version='0.3',
+      version='0.4',
       py_modules=[
           'jdsp.util',
           'jdsp.io.WaveSource',
