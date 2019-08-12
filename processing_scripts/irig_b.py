@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 from jdsp.io import WaveSource, WaveSink
 from jdsp.blocks import ZeroCrossDetector, HighPassFilter
 import numpy
@@ -163,8 +164,8 @@ class IRIGBDecoder(object):
         self.framer = IRIGBDeframer(receiver)
         self.quarter_phase_samples = int((rate / 1000.0) / 4.0)
         self.half_phase_samples = int((rate / 1000.0) / 2.0)
-        self.last_n_amplitudes = numpy.zeros(2000, dtype='float')
-        self.last_n_amplitudes[range(1000)] = 1.0
+        self.last_n_amplitudes = numpy.zeros(100, dtype='float')
+        self.last_n_amplitudes[range(50)] = 1.0
         self.amplitudes_i = 0
         self.deferred_peak_index = None
         self.deferred_valley_index = None
@@ -259,7 +260,7 @@ class IRIGBDecoder(object):
         for n, amplitude in itertools.izip(start_sample_no, amplitudes):
             split_point = self.last_n_amplitudes.mean()
             self.last_n_amplitudes[self.amplitudes_i] = amplitude
-            self.amplitudes_i = (self.amplitudes_i + 1) % 2000
+            self.amplitudes_i = (self.amplitudes_i + 1) % 100
             #if n >= 3084225 and n <= 3085471:
             #    print n, split_point, amplitude
             self.framer.receive_bit(n, amplitude > split_point)
@@ -274,12 +275,13 @@ def main(args):
   import getopt
 
   def usage(prog):
-    print >>sys.stderr, 'usage:', prog, '[-i] <wav-file>'
-    print >>sys.stderr, '-i  Invert audio before processing.'
+    print('usage:', prog, '[-i] [-l] <wav-file>', file=sys.stderr)
+    print('-i  Invert audio before processing.', file=sys.stderr)
+    print('-l  Write Audacity-compatible labels on output.', file=sys.stderr)
     sys.exit(1)
 
   def error(msg, code):
-    print >>sys.stderr, msg
+    print(msg, file=sys.stderr)
     sys.exit(code)
 
   def fatal(msg):
@@ -288,11 +290,14 @@ def main(args):
   prog = args[0]
   args = args[1:]
   invert = False
+  labels = False
 
-  opts, args = getopt.getopt(args, 'i')
+  opts, args = getopt.getopt(args, 'il')
   for opt, val in opts:
       if opt == '-i':
           invert = True
+      elif opt == '-l':
+          labels = True
       
   if len(args) < 1:
     usage(prog)
@@ -312,7 +317,11 @@ def main(args):
   block_size = 44100
   
   def got_frame(f):
-      print nasa_time(f), frame_time(f), '%09d' % f.absolute_sample
+      if labels:
+          tm = '%f' % (float(f.absolute_sample) / rate)
+          print(tm + '\t' + tm + '\t' + nasa_time(f), frame_time(f))
+      else:
+          print(nasa_time(f), frame_time(f), '%09d' % f.absolute_sample)
 
   five_ms_samples = int(rate * 0.005)
   if (five_ms_samples % 2) == 0:
