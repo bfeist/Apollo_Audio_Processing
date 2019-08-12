@@ -23,7 +23,9 @@ irig_b
     <wav-file>
 ```
 `-i`  Invert audio before processing.
+
 `-l`  Write Audacity-compatible labels on output.
+
 `-b`  Translate time for specific mission basis. (Available missions: 'a11', 'a13').
 
 *Note: this script is also incorporated as module for the deflutter script. Keep them together.*
