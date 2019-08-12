@@ -1,10 +1,9 @@
 #!/usr/bin/env python
-from math import exp, sqrt, log, pow, sin, cos, pi, atan
+from jdsp.io import WaveSource, WaveSink
+from jdsp.blocks import ZeroCrossDetector, HighPassFilter
 import numpy
 import collections
 import itertools
-from scipy.signal import convolve, firwin
-
 
 IRIGBFrame = collections.namedtuple('IRIGBFrame',
     'seconds minutes hours days years control sbs absolute_sample')
@@ -42,31 +41,6 @@ def gmt_from_nasa(h, m, s):
     h = (year_seconds / 3600) % 24
     d = (year_seconds / 86400) % 365
     return '%02dd %02dh %02dm %02ds' % (d, h, m, s)
-
-class ZeroCrossDetector(object):
-    def __init__(self, rate, freq):
-        self.last_was_positive = False
-        self.minimum_width = int(float(rate) / float(freq) * .8)
-        self.running = self.minimum_width
-        self.last_cross = 0
-        
-    def process(self, data):
-        positive = prepend(data > 0.0, self.last_was_positive, 'bool')
-        crossed = (~positive[:-1]) & positive[1:]
-        indexes = prepend(numpy.where(crossed)[0], self.last_cross, 'int32')
-        index_diffs = indexes[1:] - indexes[:-1]
-        good = []
-        running = self.running
-        for i, diff in enumerate(index_diffs):
-            running += diff
-            if running > self.minimum_width:
-                good.append(indexes[i+1])
-                running = 0
-        self.running = running
-        self.last_was_positive = positive[-1]
-        if len(indexes):
-            self.last_cross = indexes[-1] - len(data)
-        return numpy.array(good, dtype='int32')
 
 class IRIGBDeframer(object):
     def __init__(self, receiver):
@@ -175,24 +149,6 @@ class IRIGBDeframer(object):
             self.frame_abs_samp
         )
         self.receiver(frame)
-
-class HighPassFilter(object):
-    def __init__(self, rate, taps, cutoff_freq):
-        self.rate = rate
-        self.taps = taps
-        self.coeff = firwin(taps, cutoff_freq, pass_zero=False, fs=rate)
-        self.history = numpy.zeros(self.taps-1, dtype='float')
-
-    def delay(self):
-        return self.taps / 2
-    
-    def process(self, data):
-        buf = numpy.empty(len(data) + self.taps - 1, dtype='float')
-        buf[0:self.taps-1] = self.history
-        buf[self.taps-1:] = data
-        out = convolve(buf, self.coeff, mode='valid')
-        self.history = buf[-(self.taps - 1):]
-        return out
 
 class IRIGBDecoder(object):
     '''An IRIG-B decoder.'''
@@ -308,182 +264,14 @@ class IRIGBDecoder(object):
             #    print n, split_point, amplitude
             self.framer.receive_bit(n, amplitude > split_point)
 
-def gcd(x, y):
-    if y > x:
-        x, y = y, x
-    while True:
-        resid = x % y
-        if resid == 0:
-            return y
-        else:
-            x, y = y, resid
-
 def prepend(array, value, dtype):
     n = numpy.empty(len(array) + 1, dtype=dtype)
     n[0] = value
     n[1:] = array
     return n
-    
-class Nothing(object):
-    def __init__(self):
-        pass
-    
-    def process(data):
-        return data
-
-class SimpleResampler(object):
-    def __init__(self, in_rate, out_rate):
-        assert(out_rate > in_rate)
-        g = gcd(out_rate, in_rate)
-        self.top = out_rate / g
-        self.step = in_rate / g
-        self.z = None
-        self.have_z = False
-        self.have_zp1 = False
-        self.delta = 0
-        self.cur = 0
-    
-    def process(self, data):
-        dlen = len(data)
-        i = 0
-        z = self.z
-        out = []
-        have_z = self.have_z
-        have_zp1 = self.have_zp1
-        delta = self.delta
-        cur = self.cur
-        step = self.step
-        top = self.top
-        while i < dlen:
-            if not have_z:
-                z = data[i]
-                have_z = True
-                have_zp1 = False
-                i += 1
-                continue
-            elif not have_zp1 and cur > 0:
-                delta = data[i] - z
-                have_zp1 = True
-            out.append(z + delta * (cur / top))
-            cur += step
-            if cur >= top:
-                cur -= top
-                have_z = False
-        self.z = z
-        self.delta = delta
-        self.have_z = have_z
-        self.have_zp1 = have_zp1
-        self.cur = cur
-        return numpy.array(out, dtype='float')
 
 def main(args):
   import getopt
-  import wave
-
-  class WaveSource(object):
-    def __init__(self, path):
-      self._w = wave.open(path, 'r')
-      self._rate = self._w.getframerate()
-      self._channels = self._w.getnchannels()
-      self._depth = self._w.getsampwidth()
-
-    def rate(self):
-      return self._rate
-
-    def channels(self):
-      return self._channels
-
-    def depth(self):
-      return self._depth
-
-    def read(self, frame_count):
-      '''Read next available samples from file.
-
-      Returned data will be a numpy float multi-dimensional array.
-      The first dimension of the array is the channel number. The second
-      dimension is the sample number in the stream.
-
-      All sample data is normalized to a dBfs value of 1.0, regardless of
-      the input sample size.
-
-      May return less frames than requested. If no input is available, returns
-      None.'''
-      data = self._w.readframes(frame_count)
-      if data == '':
-        return None
-
-      channels = self._channels
-      depth = self._depth
-      frame_count = len(data) / channels / depth
-
-      if depth == 1:
-        samples = numpy.fromstring(data, dtype=numpy.int8)
-        samples = samples.reshape((channels, frame_count), order='F')
-        samples = samples / float(0x80)
-      elif depth == 2:
-        samples = numpy.fromstring(data, dtype=numpy.uint8)
-        samples = samples.astype(numpy.int16)
-        samples = (samples[1::2] << 8) + \
-                  (samples[0::2]     )
-        samples = samples.reshape((channels, frame_count), order='F')
-        samples = samples / float(0x8000)
-      else:
-        assert(depth == 3)
-        samples = numpy.fromstring(data, dtype=numpy.uint8)
-        samples = samples.astype(numpy.int32)
-        samples = (samples[2::3] << 24) + \
-                  (samples[1::3] << 16) + \
-                  (samples[0::3] << 8)
-        samples = samples.reshape((channels, frame_count), order='F')
-        samples = samples / float(0x80000000)
-
-      return samples
-
-  class WaveSink(object):
-    def __init__(self, path, rate, channels, depth):
-      '''Opens a WAVe file for writing.
-
-      path - Pathname of file to write.
-      rate - Sample rate, in hertz.
-      channels - Number of channels.
-      depth - Number of bytes per sample (1 = 8-bit, 2 = 16-bit, 3 = 24-bit )'''
-      self._channels = channels
-      self._depth = depth
-      self._w = wave.open(path, 'w')
-      self._w.setnchannels(channels)
-      self._w.setframerate(rate)
-      self._w.setsampwidth(depth)
-
-    def write(self, frames):
-      '''Writes samples to file.
-
-      frames - An array of arrays containing sample data in float format.
-               The outer array must contain one entry per channel. The inner
-               array contains the sample data for that channel.  Values
-               will be interpreted as 1.0 being 0 dBfs.'''
-      framecount = len(frames[0])
-      data = frames.reshape(self._channels*framecount, order='F')
-      if self._depth == 1:
-        data = (data * 0x80).clip(-0x80, 0x7f).astype(numpy.int8)
-        data =  ''.join([chr(x) for x in data])
-      elif self._depth == 2:
-        data = (data * 0x8000).clip(-0x8000, 0x7fff).astype(numpy.int16)
-        out = numpy.empty(2*framecount*self._channels, dtype=numpy.uint8)
-        out[1::2] = (data >> 8) & 0xff
-        out[0::2] = (data     ) & 0xff
-        data = ''.join([chr(x) for x in out])
-      else:
-        assert(self._depth == 3)
-        data = (data * 0x800000).clip(-0x800000, 0x7fffff).astype(numpy.int32)
-        out = numpy.empty(3*framecount*self._channels, dtype=numpy.uint8)
-        out[2::3] = (data >> 16) & 0xff
-        out[1::3] = (data >>  8) & 0xff
-        out[0::3] = (data      ) & 0xff
-        data = ''.join([chr(x) for x in out])
-      self._w.writeframes(data)
-
-    def close(self):
-      self._w.close()
 
   def usage(prog):
     print >>sys.stderr, 'usage:', prog, '[-i] <wav-file>'
