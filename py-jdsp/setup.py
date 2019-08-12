@@ -18,6 +18,7 @@ setup(name='jdsp',
       package_dir = { 'jdsp' : 'lib' },
       install_requires=[
           'numpy(>=1.10)',
-          'scipy(>=0.16.0)'
+          'scipy(>=0.16.0)',
+          'numba(>=0.45)'
       ]
 )

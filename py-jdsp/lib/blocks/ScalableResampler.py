@@ -2,6 +2,7 @@ import numpy as np
 from numpy import dot
 from scipy.signal import convolve
 from jdsp.util import gcd
+from numba import jit
 
 class ScalableResampler(object):
     def __init__(self, in_rate, out_rate, quality=50):
@@ -121,21 +122,32 @@ class ScalableResampler(object):
         buf[len(self.history):] = data
         
         #
-        # Cache some variables
-        #
-        out_stride = self.out_stride
-        in_stride = self.in_stride
-        sinc = self.sinc
-        window = len(sinc)
-
-        #
         # Prepare a long buffer with the previously saved samples concatenated
         # with the new input samples.
         #
+        start = np.where(deltas >= len(self.sinc))[0][0]
+        stop = len(deltas)
+        
+        consumed, out = self.process_core(
+            start, stop, out, buf, self.sinc, deltas, self.out_stride
+        )
+        
+        self.history = buf[consumed:]
+        self.history_d = deltas[consumed:]
+        
+        return out
+
+    @staticmethod
+    @jit(nopython=True)
+    def process_core(start, stop, out, buf, sinc, deltas, out_stride):
+        #
+        # Cache some variables
+        #
+        window = len(sinc)
+        
         i = 0
         j = 0
-        k = np.where(deltas >= window)[0][0]
-        stop = len(deltas)
+        k = start
         total_delta = 0
         
         while True:
@@ -193,11 +205,11 @@ class ScalableResampler(object):
                 #
                 deltas[k] -= total_delta
                 k += 1
-            
-    
-        self.history = buf[j:]
-        self.history_d = deltas[j:]
-        if k < stop:
-            self.history_d[-1] -= total_delta
         
-        return out
+        if k < stop:
+            deltas[-1] -= total_delta
+         
+        #
+        # Return samples consumed and output.
+        #
+        return j, out
