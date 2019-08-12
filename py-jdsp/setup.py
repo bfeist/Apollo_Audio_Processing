@@ -9,7 +9,9 @@ setup(name='jdsp',
           'jdsp.blocks.HighPassFilter',
           'jdsp.blocks.SimpleResampler',
           'jdsp.blocks.ZeroCrossDetector',
-          'jdsp.blocks.RationalResampler'
+          'jdsp.blocks.RationalResampler',
+          'jdsp.blocks.ScalableResampler',
+          'jdsp.blocks.CyclicFilter'
       ],
       packages = [ 'jdsp' ],
       package_dir = { 'jdsp' : 'lib' },
