@@ -90,9 +90,9 @@ def usage(code, msg=None):
 
 check_overflow = None
 invert = False
-block_size = 10000
+block_size = 50000
 start_sample = 0
-deflutter_depth = 60
+deflutter_depth = 1
 prescale = 1
 outrate = 96000
 skip = 0
@@ -119,7 +119,7 @@ tc_source = jdsp.io.WaveSource(args[0])
 tc_sink = jdsp.io.WaveSink(args[1], outrate, 1, 2)
 tc_follower = ToneFollower(tc_source.rate(), 1000, 200, 28)
 tc_decoder = IRIGBDecoder(tc_source.rate(), frame_received)
-tc_resampler = ScalableResampler(tc_source.rate(), outrate)
+tc_resampler = ScalableResampler(tc_source.rate(), outrate, quality=50)
 
 five_ms_samples = int(tc_source.rate() * 0.005)
 if (five_ms_samples % 2) == 0:
@@ -139,7 +139,7 @@ for i in range(2, len(args), 2):
     s = jdsp.io.WaveSource(args[i])
     o = jdsp.io.WaveSink(args[i+1], outrate, 1, 2)
     b = DelayBuffer(delay=timecode_delay, zero_stuff=False)
-    rs = ScalableResampler(tc_source.rate(), outrate)
+    rs = ScalableResampler(tc_source.rate(), outrate, quality=50)
     tracks.append(Track(source=s, sink=o, buffer=b, resampler=rs))
 
 #
@@ -151,9 +151,12 @@ tc_phase_buf = DelayBuffer(delay=pll_delay, zero_stuff=False)
 tc_sample_buf = DelayBuffer(delay=timecode_delay, zero_stuff=False)
 
 # start_sample = 130813495 # Research area of T885-19 Epoch
-# invert = -1
+#   2966s
+#   invert = -1
 # start_sample = 279020700 # Research area of T884-18 Epoch
 #   6327s
+# start_sample = x # Landing area of T885-19 Epoch
+#   2966s + 896s = 3862s
 # invert = 1
 
 start_sample = skip * tc_source.rate()
