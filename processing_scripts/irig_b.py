@@ -19,9 +19,9 @@ def frame_time(f):
 
 #
 # Apollo 11 range zero time is 13:32:00, July 16, 1969
-# That is day #196 (zero-based)
+# That is day #197 (one-based)
 #
-apollo_11_T_0 = (((196 * 24) + 13) * 60 + 32) * 60
+apollo_11_T_0 = (((197 * 24) + 13) * 60 + 32) * 60
 
 def nasa_time(f):
     year_seconds = (((((f.years * 365) + f.days) * 24 + f.hours) * 60 +
@@ -60,6 +60,7 @@ class ZeroCrossDetector(object):
             if running > self.minimum_width:
                 good.append(indexes[i+1])
                 running = 0
+            if running > 
         self.running = running
         self.last_was_positive = positive[-1]
         if len(indexes):
@@ -462,7 +463,8 @@ def main(args):
       self._w.close()
 
   def usage(prog):
-    print >>sys.stderr, 'usage:', prog, '<wav-file>'
+    print >>sys.stderr, 'usage:', prog, '[-i] <wav-file>'
+    print >>sys.stderr, '-i  Invert audio before processing.'
     sys.exit(1)
 
   def error(msg, code):
@@ -474,10 +476,13 @@ def main(args):
 
   prog = args[0]
   args = args[1:]
-  neper_attack_time = 0.050
-  neper_release_time = 0.050
-  level_dbfs = -10.0
-  
+  invert = False
+
+  opts, args = getopt.getopt(args, 'i')
+  for opt, val in opts:
+      if opt == '-i':
+          invert = True
+      
   if len(args) < 1:
     usage(prog)
 
@@ -493,10 +498,10 @@ def main(args):
   if channels != 1:
       error('Only mono for now')
     
-  block_size = 2048
+  block_size = 44100
   
   def got_frame(f):
-      print nasa_time(f), frame_time(f)
+      print nasa_time(f), frame_time(f), '%09d' % f.absolute_sample
 
   decoder = IRIGBDecoder(rate, got_frame)
 
@@ -506,7 +511,8 @@ def main(args):
       break
     
     samples = frames[0]
-    # scaled = front.process(samples)
+    if invert:
+        samples = samples * -1.0
     decoder.process(samples)
     
 if __name__ == '__main__':
