@@ -4,33 +4,57 @@ from numpy import empty_like
 from scipy.signal import convolve, firwin
 from ..util import gcd
 
+def lowpass(rate, bw):
+    taps = rate / bw
+    if taps % 2 == 0:
+        taps += 1
+    return taps, firwin(taps, bw, pass_zero=True, nyq=rate)
+    
 class ToneFollower(object):
     def __init__(self, rate, tone_hz, drift_bandwidth_hz, flutter_bandwidth_hz):
+        '''
+        Create a playback speed detector that follows a reference tone.
+        
+        rate -- Input sample rate.
+        tone_hz -- Tone frequency to expect/follow, in hertz.
+        drift_bandwidth_hz -- Bandwidth of bandpass filter to apply around
+            tone frequency. Bandpass filter will be centered on the tone
+            frequency.
+        flutter_bandwidth_hz -- The maximum flutter rate to detect, in hertz.
+
+        This procesing block is useful for detecting wow and flutter in a
+        signal stream provided there is a continuous reference tone to follow
+        in the stream. (Like an IRIG-B timecode signal at 1 kHz, for example).
+        
+        The output of the procesing block is an estimation of the instantaneous
+        playback speed at every input sample, scaled to the unit value (1) when
+        the playback rate appears to be normal.
+        '''
         # Input sample rate.
         self.rate = rate
         
         #
         # Set up a post-mixing filter.
         #
-        taps = rate / drift_bandwidth_hz
-        if taps % 2 == 0:
-            taps += 1
-        self.taps = taps
-        self.coeff = firwin(taps, drift_bandwidth_hz,  pass_zero=True, nyq=rate)
+        self.taps, self.coeff = lowpass(rate, drift_bandwidth_hz)
         self.history = zeros(self.taps-1, dtype='complex64')
 
         #
         # Set up a post-FM demodulation filter.
         #
-        angle_taps = rate / flutter_bandwidth_hz
-        if angle_taps % 2 == 0:
-            angle_taps += 1
-        self.angle_taps = angle_taps
-        self.acoeff = firwin(angle_taps, flutter_bandwidth_hz, pass_zero=True, nyq=rate)
+        self.angle_taps, self.acoeff = lowpass(rate, flutter_bandwidth_hz)
         self.ahistory = zeros(self.angle_taps-1, dtype='float')
-
+        
+        #
+        # FM demodulation requires one sample of history.
+        #
         self.prev_err_sample = 0
+        
+        #
+        # Calculate the reference tone oscillator speed in radians-per-sample.
+        #
         self.angle = (2 * pi * tone_hz) / rate
+        self.r_angle = 1.0 / self.angle # Reciprocal
 
         #
         # Create the basis for a stable oscillator that can run correctly
@@ -42,9 +66,16 @@ class ToneFollower(object):
         self.counter = 0
     
     def delay(self):
+        '''
+        Processing block delay, in samples.
+        '''
         return self.taps / 2 + self.angle_taps / 2
     
     def process(self, data):
+        #
+        # Incorporate past samples into a buffer for
+        # filtering the mixing output.
+        #
         buf = empty(len(data) + self.taps - 1, dtype='complex64')
         buf[0:self.taps-1] = self.history
         
@@ -83,18 +114,28 @@ class ToneFollower(object):
         #
         # Set up an FM filter buffer.
         #
-        thetabuf = empty(len(data) + self.angle_taps - 1, dtype='float')
-        thetabuf[0:self.angle_taps-1] = self.ahistory
+        demodbuf = empty(len(data) + self.angle_taps - 1, dtype='float')
+        demodbuf[0:self.angle_taps-1] = self.ahistory
         
         #
         # Demodulate the error signal into the FM filter buffer.
         #
-        thetabuf[self.angle_taps-1:] = angle(diff)
+        demodbuf[self.angle_taps-1:] = angle(diff)
         
         #
-        # Filter the FM signal.
+        # Filter the FM signal, yielding the estimated error between the
+        # playback rate and the record rate, radians-per sample. A theta
+        # value of zero represents no change in playback speed. Positive
+        # values represent playback speeds that are faster than recorded
+        # and negative values represent speeds slower than recorded.
         #
-        theta = convolve(thetabuf, self.acoeff, mode='valid')
+        dtheta = convolve(demodbuf, self.acoeff, mode='valid')
+        
+        #
+        # Convert radians-per-sample error signal into one relative to the
+        # sample rate.
+        #
+        rate = 1.0 - dtheta * self.angle
 
         #
         # Save the last output sample for future difference calculations.
@@ -106,11 +147,11 @@ class ToneFollower(object):
         # Save FM demodulated output for future filtering.
         #
         self.history = buf[-(self.taps - 1):]
-        self.ahistory = thetabuf[-(self.angle_taps - 1):]
+        self.ahistory = demodbuf[-(self.angle_taps - 1):]
         
         #
         # Update the oscillator.
         #
         self.counter = (self.counter + len(data)) % self.bottom_r
 
-        return theta
+        return rate
