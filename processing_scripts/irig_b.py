@@ -26,15 +26,13 @@ class PLL(object):
         twopi = 2 * pi
         left = len(data)
         i = 0
-        outphase = numpy.empty((3, left), dtype='float')
+        outphase = numpy.empty(left, dtype='float')
         while left > 0:
             phasor = numpy.arange(self.phase, twopi, self.incr)
             if len(phasor) > left:
                 phasor = phasor[0:left]
             part = data[i:i+len(phasor)]
-            outphase[0,i:i+len(phasor)] = numpy.sin(phasor)
-            outphase[1,i:i+len(phasor)] = numpy.sin(phasor) * part
-            outphase[2,i:i+len(phasor)] = numpy.cos(phasor) * part
+            outphase[i:i+len(phasor)] = phasor
             self.sumI += numpy.dot(part, numpy.sin(phasor))
             self.sumQ += numpy.dot(part, numpy.cos(phasor))
             self.phase = phasor[-1] + self.incr
@@ -75,113 +73,6 @@ class PLL(object):
                 err_angle += pi if Q > 0.0 else -pi
         return err_angle
 
-class EnvelopeFollower(object):
-    '''Calculates the instantaneous power envelope of a waveform using classical
-    attack and release time parameters.'''
-    
-    def __init__(self, rate, windowSec, attackSec, releaseSec):
-        '''Initializes and configures envelope detector.
-
-        See configure() for parameters.'''
-        self.configure(rate, windowSec, attackSec, releaseSec)
-
-    def configure(self, rate, windowSec, attackSec, releaseSec):
-        '''Configures detector for given parameters.
-
-        rate - Input sample rate, in hertz.
-        windowSec - The size of the evaluation window, in seconds.
-        attackSec - Attack rate, in seconds.
-        releaseSec - Release rate, in seconds.
-
-        Attack and release rates are the measured times it takes for the
-        difference between the follower's estimation of the input envelope and
-        the actual input envelope to reach within negative one neper
-        (about -4.3 dB) of the input envelope.
-
-        The attack rate is used whenever the current estimation is below the
-        input and the release rate is used whenever the current estimation is
-        above the input.'''
-     
-        # Compute the attack coefficient.
-        self._ga = exp(-1/(rate*attackSec))
-        # and the release coefficient.
-        self._gr = exp(-1/(rate*releaseSec))
-        self._windowSz = int(windowSec * rate)
-        self.reset()
-
-    def reset(self):
-        self._hist = numpy.zeros(self._windowSz, dtype='float')
-        self._hist_i = 0
-        self._envelope = 0.0
-
-    def process(self, data):
-        '''Calculate the instantaneous power envelope for the given array
-        of input data, returning an output array of envelope values the
-        same size.
-
-        The values returned are power-scaled, not voltage scaled. Thus, if
-        the input waveform has an RMS power of -10 dBfs, returns 0.01 and
-        not 0.0316. 0.316 would be the equivalent RMS voltage for the same
-        signal.'''
-        # Square each input sample and then rescale for the evaluation
-        # window size. 
-        data = data * data
-        data = data / self._windowSz
-
-        # Allocate the output array.
-        ret = numpy.empty(len(data), dtype='float')
-
-        # Cache some data that will be heavily used in the loop
-        ga = self._ga
-        gr = self._gr
-        j = self._hist_i
-        n = self._windowSz
-        hist = self._hist
-        sum = numpy.sum(self._hist)
-        env = self._envelope
-
-        for i, sample in enumerate(data):
-            sum += sample
-            sum -= hist[(j + i) % n]
-            hist[(j + i) % n] = sample
-            if env < sum:
-                env *= ga
-                env += (1 - ga) * sum
-            else:
-                env *= gr
-                env += (1 - gr) * sum
-            ret[i] = env
-
-        self._envelope = env
-        self._hist_i += len(data)
-        self._hist_i %= n
-
-        return ret
-
-class AGC(object):
-    '''Automatic gain controller. Tries to keep audio energy constant.'''
-
-    def __init__(self, rate, window, attack, release, level):
-        '''Instantiate an RMS-sensitive audio expander.
-        
-        rate - Sample rate, in hertz.
-        window - RMS averaging window size, in seconds.
-        attack - Attack time, in seconds. (Neper scale).
-        release - Release time, in seconds. (Neper scale).
-        level - Desired output level, in dBfs (fs = "full scale", where
-        full-scale is assumed to be a sample value of 1.0).'''
-        self._detector = EnvelopeFollower(rate, window, attack, release)
-        self._target = pow(10.0, level / 10.0)
-
-    def process(self, data):
-        '''Apply automatic gain to samples.
-
-        data - A buffer of samples to process.'''
-        envelope = self._detector.process(data)
-        envelope = numpy.maximum(envelope, 0.1) # Prevent zeros.
-        gain = numpy.reciprocal(envelope) / self._target
-        return data * gain
-
 class IRIGBDecoder(object):
     '''An IRIG-B decoder.'''
 
@@ -192,75 +83,99 @@ class IRIGBDecoder(object):
         receiver - Callable to receive decoded frames.'''
         #assert((rate % 1000) == 0)
 
-        self._pll = PLL(rate, 1000.0, 2, 0.5)
-        self._agc = AGC(
-            rate,                 # sample rate
-            0.1,                  # RMS window time (seconds)
-            1.0,                  # Attack time (neper basis)
-            1.0,                  # Release time (neper basis)
-            -10.0                 # Desired average power level, dbFS.
-        )
-        self._samples_per_symbol = int(rate / 1000)
-        self._sync_window = numpy.zeros(self._samples_per_symbol,
-            dtype='float')
-        self._pos = 0
-        self._sync_pos = 0
-        self._evaluate_pos = self._samples_per_symbol / 2
-        self._next_evaluate_pos = self._evaluate_pos
-        self._sample_number = 0
-        self._clock_detected = False
+        self._pll = PLL(rate, 1000.0, 1, 0.1)
         self._dbg = dbg
+        self._last_crest = False
+        self._last_trough = False
+        self._have_delayed_crest = False
+        self._last_crest_i = 0
+        self._sample_number = 0
+        self._frame_state = 'idle'
+        self._frame_pos = 0
+        self._pulse_pos = 0
+        self._big_count = 0
+        self._sync_word = 0
+        self._receiver = receiver
         
     def process(self, data):
         '''Decode the given data, returning frames found, if any.'''
-        # data = self._agc.process(data)
-        dbg_out = numpy.empty((4, len(data)), dtype='float')
-        pll = self._pll.process(data)
-        dbg_out[0] = data
-        dbg_out[1] = pll[0]
-        dbg_out[2] = pll[1]
-        dbg_out[3] = pll[2]
-#        for i, sample in enumerate(data):
-#            avg, synced = self.sample_now(sample)
-#            dbg_out[0,i] = avg
-#            dbg_out[1,i] = sample
-#            if synced:
-#                abs_sample = i + self._sample_number
-#                self.receive_sample(abs_sample, sample)
+        # Run the PLL against the input signal, returning the oscillator phase
+        phase = self._pll.process(data)
+        # Find the peak and crest points of the oscillator
+        post_crest = numpy.empty(len(data)+1, dtype='bool')
+        post_trough = numpy.empty(len(data)+1, dtype='bool')
+        post_crest[0] = self._last_crest
+        post_trough[0] = self._last_trough
+        post_crest[1:] = phase >= (pi / 2.0)
+        post_trough[1:] = phase >= (pi * 1.5)
+        self._last_crest = post_crest[-1]
+        self._last_trough = post_trough[-1]
+
+        trough_points = numpy.where((~post_trough[:-1]) & post_trough[1:])[0]
+        crest_points = numpy.where((~post_crest[:-1]) & post_crest[1:])[0]
+
+        if self._have_delayed_crest:
+            crests = numpy.empty(len(crest_points) + 1, dtype='float')
+            crests[0] = self._delayed_crest
+            crests[1:] = data[crest_points]
+            self._have_delayed_crest = False
+        else:
+            crests = data[crest_points]
+        
+        if len(crests) > len(trough_points):
+            self._delayed_crest = crests[-1]
+            self._delayed_crest_i = crest_points[-1] + self._sample_number
+            self._have_delayed_crest = True
+            crests = crests[:-1]
+            assert(len(crests) == len(trough_points))
+        
+        troughs = data[trough_points]
+        
+        if len(crests):
+            pulses = crests - troughs
+            # print pulses
+            self.receive_pulses(pulses)
+
         self._sample_number += len(data)
-        self._dbg.write(dbg_out)
+        # self._dbg.write(dbg_out)
     
     def sample_now(self, sample):
-        v = self._sync_window[self._pos]
-        v *= 0.99
-        v += sample * 0.01
-        self._sync_window[self._pos] = v
-        
-        if self._pos == self._sync_pos:
-            sync_now = True
-            self._evaluate_pos = self._next_evaluate_pos
-        else:
-            sync_now = False
-        
-        if self._pos == self._evaluate_pos:
-            maxI = numpy.argmax(self._sync_window)
-            minI = numpy.argmin(self._sync_window)
-            if maxI != self._sync_pos:
-                self._sync_pos = maxI
-                self._next_evaluate_pos = \
-                    (maxI + self._samples_per_symbol / 2) % \
-                    self._samples_per_symbol
-            big, small = self._sync_window[[maxI, minI]]
-            if big - small > 0.1:
-                self._clock_detected = True
-            else:
-                self._clock_detected = False
-                
-        self._pos = (self._pos + 1) % self._samples_per_symbol
-        return v, (sync_now and self._clock_detected)
+        pass
     
-    def receive_sample(self, abs_s, sample):
-        print abs_s, sample
+    def receive_pulses(self, amplitudes):
+        for amplitude in amplitudes:
+            big = abs(amplitude) > 0.5
+            if self._frame_state == 'idle':
+                self._sync_word <<= 1
+                self._sync_word &= 0xfffff
+                if big:
+                    self._sync_word |= 1
+                if self._sync_word == 0xff3fc:
+                    print 'SYNC'
+                    self._frame_state = 'sync'
+                    self._frame_pos = 1
+                    self._pulse_pos = 0
+                    self._big_count = 0
+            else:
+                if big:
+                    self._big_count += 1
+                self._pulse_pos += 1
+                if self._pulse_pos == 10:
+                    if self._big_count >= 7:
+                        print "SYNC"
+                    elif self._big_count >= 4:
+                        print "1",
+                    elif self._big_count >= 2:
+                        print "0",
+                    else:
+                        print "?",
+                    self._pulse_pos = 0
+                    self._big_count = 0
+                    self._frame_pos += 1
+                    if self._frame_pos == 99:
+                        print "got 99 bits"
+                        self._frame_state = 'idle'
+                        self._sync_word = 0
 
 def gcd(x, y):
     if y > x:
@@ -473,7 +388,7 @@ def main(args):
 #      in_rate = rate
 
   #try:
-  sink = WaveSink(dbg_file, rate, 4, 2)
+  sink = WaveSink(dbg_file, rate, 3, 2)
   #except:
   #  error('Can\'t open debug file', 3)
   
