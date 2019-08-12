@@ -1,15 +1,6 @@
 #!/usr/bin/env python
+from jdsp.util import gcd
 import numpy
-
-def gcd(x, y):
-    if y > x:
-        x, y = y, x
-    while True:
-        resid = x % y
-        if resid == 0:
-            return y
-        else:
-            x, y = y, resid
 
 class SimpleResampler(object):
     def __init__(self, in_rate, out_rate):

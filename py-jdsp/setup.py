@@ -1,8 +1,9 @@
 from setuptools import setup
 
 setup(name='jdsp',
-      version='0.1',
+      version='0.2',
       py_modules=[
+          'jdsp.util',
           'jdsp.io.WaveSource',
           'jdsp.io.WaveSink',
           'jdsp.blocks.HighPassFilter',
