@@ -3,6 +3,8 @@ from math import exp, sqrt, log, pow, sin, cos, pi, atan
 import numpy
 import collections
 import itertools
+from scipy.signal import convolve, firwin
+
 
 IRIGBFrame = collections.namedtuple('IRIGBFrame',
     'seconds minutes hours days years control sbs absolute_sample')
@@ -60,7 +62,6 @@ class ZeroCrossDetector(object):
             if running > self.minimum_width:
                 good.append(indexes[i+1])
                 running = 0
-            if running > 
         self.running = running
         self.last_was_positive = positive[-1]
         if len(indexes):
@@ -175,6 +176,24 @@ class IRIGBDeframer(object):
         )
         self.receiver(frame)
 
+class HighPassFilter(object):
+    def __init__(self, rate, taps, cutoff_freq):
+        self.rate = rate
+        self.taps = taps
+        self.coeff = firwin(taps, cutoff_freq, pass_zero=False, fs=rate)
+        self.history = numpy.zeros(self.taps-1, dtype='float')
+
+    def delay(self):
+        return self.taps / 2
+    
+    def process(self, data):
+        buf = numpy.empty(len(data) + self.taps - 1, dtype='float')
+        buf[0:self.taps-1] = self.history
+        buf[self.taps-1:] = data
+        out = convolve(buf, self.coeff, mode='valid')
+        self.history = buf[-(self.taps - 1):]
+        return out
+
 class IRIGBDecoder(object):
     '''An IRIG-B decoder.'''
 
@@ -194,7 +213,11 @@ class IRIGBDecoder(object):
         self.deferred_peak_index = None
         self.deferred_valley_index = None
         self.sample_number = 0
-        
+    
+    def set_sample_number(self, n):
+        '''Set the starting sample number, useful if input is delayed.'''
+        self.sample_number = n
+    
     def process(self, data):
         '''Decode the given data, returning frames found, if any.'''
         #
@@ -503,8 +526,13 @@ def main(args):
   def got_frame(f):
       print nasa_time(f), frame_time(f), '%09d' % f.absolute_sample
 
+  five_ms_samples = int(rate * 0.005)
+  if (five_ms_samples % 2) == 0:
+      five_ms_samples += 1
+  hp = HighPassFilter(rate, five_ms_samples, 400.0)
   decoder = IRIGBDecoder(rate, got_frame)
-
+  decoder.set_sample_number(hp.delay() * -1)
+  
   while True:
     frames = src.read(block_size)
     if frames is None:
@@ -513,7 +541,8 @@ def main(args):
     samples = frames[0]
     if invert:
         samples = samples * -1.0
-    decoder.process(samples)
+    filtered = hp.process(samples)
+    decoder.process(filtered)
     
 if __name__ == '__main__':
   import sys
