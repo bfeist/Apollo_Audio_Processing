@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='jdsp',
-      version='0.2',
+      version='0.3',
       py_modules=[
           'jdsp.util',
           'jdsp.io.WaveSource',
@@ -9,6 +9,7 @@ setup(name='jdsp',
           'jdsp.blocks.HighPassFilter',
           'jdsp.blocks.SimpleResampler',
           'jdsp.blocks.ZeroCrossDetector'
+          'jdsp.blocks.RationalResampler'
       ],
       packages = [ 'jdsp' ],
       package_dir = { 'jdsp' : 'lib' },
