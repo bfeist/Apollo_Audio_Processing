@@ -5,12 +5,25 @@ from jdsp.util import gcd
 from numba import jit
 
 class ScalableResampler(object):
-    def __init__(self, in_rate, out_rate, quality=50):
+    def __init__(self, in_rate, out_rate, speed_quantum=320, quality=50):
         '''
         Rational upsampler.
         
         in_rate -- Input sample rate. (integer)
         out_rate -- Output sample rate. (integer)
+
+        speed_quantum -- The minimum instantaneous expressable speed
+            difference to support, "n" in the expression "1 / n". When
+            expressing a sample's playback time in the "scale" vector of
+            the process method, the sample will actually be moved to the
+            nearest point "k / n", where k is an integer.
+
+            For example, a speed quantum of 100 allows for 1% changes in speed
+            to be effected with no rounding. Changes below 1% will not
+            instantaneously be expressed, but the residual error will be
+            retained such that the change will be remembered and eventually
+            make an effect on the output.
+
         quality -- The number of input samples to evaluate at any one time
             when producing an output sample. The more samples, the better.
         
@@ -29,6 +42,36 @@ class ScalableResampler(object):
         d = gcd(in_rate, out_rate)
         in_rate /= d
         out_rate /= d
+
+        #
+        # Bring up the rates if they don't support the speed quantum
+        # desired.
+        #
+        if out_rate < speed_quantum:
+            #
+            # Find the lowest integer multiple to use that doesn't force
+            # the output rate to go over the desired quantum.
+            #
+            if (speed_quantum % out_rate) == 0:
+                #
+                # The desired quantum is perfectly achievable. Just
+                # find the simple integer multiple required to do it.
+                #
+                multiple = speed_quantum // out_rate
+            else:
+                #
+                # Not a match. The new rate will exceed the quantum, but it
+                # is the smallest rate which will do so, so it isn't
+                # excessive.
+                #
+                multiple = (speed_quantum // out_rate) + 1
+
+            #
+            # Adjust the output rates so that the desired quantum is
+            # achievable.
+            #
+            out_rate *= multiple
+            in_rate *= multiple
 
         #
         # Calculate the number of sinc taps required to
