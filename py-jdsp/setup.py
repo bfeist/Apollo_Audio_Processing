@@ -1,9 +1,10 @@
 from setuptools import setup
 
 setup(name='jdsp',
-      version='0.6',
+      version='0.6.1',
       py_modules=[
-          'jdsp.util',
+          'jdsp.util.DelayBuffer',
+          'jdsp.util.gcd',
           'jdsp.io.WaveSource',
           'jdsp.io.WaveSink',
           'jdsp.blocks.HighPassFilter',
@@ -12,7 +13,7 @@ setup(name='jdsp',
           'jdsp.blocks.RationalResampler',
           'jdsp.blocks.ScalableResampler',
           'jdsp.blocks.CyclicFilter',
-          'jdsp.blocks.ToneFollower'
+          'jdsp.blocks.ToneFollower',
       ],
       packages = [ 'jdsp' ],
       package_dir = { 'jdsp' : 'lib' },
