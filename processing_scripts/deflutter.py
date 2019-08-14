@@ -126,7 +126,8 @@ tc_source = jdsp.io.WaveSource(args[0])
 tc_sink = jdsp.io.WaveSink(args[1], outrate, 1, 2)
 tc_follower = ToneFollower(tc_source.rate(), 1000, 200, 28)
 tc_decoder = IRIGBDecoder(tc_source.rate(), frame_received)
-tc_resampler = ScalableResampler(tc_source.rate(), outrate, quality=50)
+tc_resampler = ScalableResampler(tc_source.rate(), outrate, speed_quantum=320,
+    quality=50)
 
 five_ms_samples = int(tc_source.rate() * 0.005)
 if (five_ms_samples % 2) == 0:
@@ -146,7 +147,8 @@ for i in range(2, len(args), 2):
     s = jdsp.io.WaveSource(args[i])
     o = jdsp.io.WaveSink(args[i+1], outrate, 1, 2)
     b = DelayBuffer(delay=0, zero_stuff=False)
-    rs = ScalableResampler(tc_source.rate(), outrate, quality=50)
+    rs = ScalableResampler(tc_source.rate(), outrate, speed_quantum=320,
+        quality=50)
     tracks.append(Track(source=s, sink=o, buffer=b, resampler=rs))
 
 #
