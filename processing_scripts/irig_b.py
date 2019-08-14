@@ -5,6 +5,7 @@ from jdsp.blocks import ZeroCrossDetector, HighPassFilter
 import numpy
 import collections
 import itertools
+import functools
 
 IRIGBFrame = collections.namedtuple('IRIGBFrame',
     'seconds minutes hours days years control sbs absolute_sample')
@@ -19,24 +20,34 @@ def frame_time(f):
         f.seconds
     )
 
-#
-# Apollo 11 range zero time is 13:32:00, July 16, 1969
-# That is day #197 (one-based)
-#
-apollo_11_T_0 = (((197 * 24) + 13) * 60 + 32) * 60
+time_bases = {
+    #
+    # Apollo 11 range zero time is 13:32:00, July 16, 1969
+    # That is day #197 (one-based)
+    #
+    'a11' : (((197 * 24) + 13) * 60 + 32) * 60,
 
-def nasa_time(f):
+    #
+    # Apollo 13 range zero time is 19:13:00, April 11, 1970
+    # (https://history.nasa.gov/SP-4029/Apollo_13h_Timeline.htm).
+    #
+    # That is day #101 (one-based)
+    #
+    'a13' : (((101 * 24) + 19) * 60 + 13) * 60
+}
+
+def nasa_time(basis, f):
     year_seconds = (((((f.years * 365) + f.days) * 24 + f.hours) * 60 +
         f.minutes) * 60) + f.seconds
-    mission_seconds = year_seconds - apollo_11_T_0
+    mission_seconds = year_seconds - basis
     hours = mission_seconds / 3600
     minutes = (mission_seconds / 60) % 60
     seconds = mission_seconds % 60
     return '%03d:%02d:%02d' % (hours, minutes, seconds)
 
-def gmt_from_nasa(h, m, s):
+def gmt_from_nasa(h, m, s, basis):
     mission_seconds = ((h * 60) + m) * 60 + s
-    year_seconds = mission_seconds + apollo_11_T_0
+    year_seconds = mission_seconds + basis
     s = year_seconds % 60
     m = (year_seconds / 60) % 60
     h = (year_seconds / 3600) % 24
@@ -275,9 +286,12 @@ def main(args):
   import getopt
 
   def usage(prog):
-    print('usage:', prog, '[-i] [-l] <wav-file>', file=sys.stderr)
+    print('usage:', prog, '[-i] [-l] [-b <base>] <wav-file>', file=sys.stderr)
     print('-i  Invert audio before processing.', file=sys.stderr)
     print('-l  Write Audacity-compatible labels on output.', file=sys.stderr)
+    print('-b  Translate time for specific mission basis.', file=sys.stderr)
+    print('    (Available bases: {}).'.format(' '.join(time_bases.keys())),
+          file=sys.stderr)
     sys.exit(1)
 
   def error(msg, code):
@@ -291,16 +305,23 @@ def main(args):
   args = args[1:]
   invert = False
   labels = False
+  basis_name = 'a11'
 
-  opts, args = getopt.getopt(args, 'il')
+  opts, args = getopt.getopt(args, 'ilb:')
   for opt, val in opts:
       if opt == '-i':
           invert = True
       elif opt == '-l':
           labels = True
+      elif opt == '-b':
+          basis_name = val.lower()
       
   if len(args) < 1:
     usage(prog)
+
+  mission_basis = time_bases.get(basis_name, None)
+  if mission_basis is None:
+    error('Unknown mission name.', 2)
 
   in_file = args[0]
 
@@ -314,20 +335,20 @@ def main(args):
   if channels != 1:
       error('Only mono for now')
     
-  block_size = 44100
+  block_size = int(rate)
   
-  def got_frame(f):
+  def got_frame(b, f):
       if labels:
           tm = '%f' % (float(f.absolute_sample) / rate)
-          print(tm + '\t' + tm + '\t' + nasa_time(f), frame_time(f))
+          print(tm + '\t' + tm + '\t' + nasa_time(b, f), frame_time(f))
       else:
-          print(nasa_time(f), frame_time(f), '%09d' % f.absolute_sample)
+          print(nasa_time(b, f), frame_time(f), '%09d' % f.absolute_sample)
 
   five_ms_samples = int(rate * 0.005)
   if (five_ms_samples % 2) == 0:
       five_ms_samples += 1
   hp = HighPassFilter(rate, five_ms_samples, 400.0)
-  decoder = IRIGBDecoder(rate, got_frame)
+  decoder = IRIGBDecoder(rate, functools.partial(got_frame, mission_basis))
   decoder.set_sample_number(hp.delay() * -1)
   
   while True:
