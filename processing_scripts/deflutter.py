@@ -84,7 +84,11 @@ def usage(code, msg=None):
     '      without any detected timecode frames.\n' \
     '-i -- Invert IRIG-B signal before decoding.\n' \
     '-d -- De-flutter depth. Needed until I discover why it needs tweaking\n' \
-    '-s -- Skip <offset> seconds from start of file.\n'.format(prog)
+    '-s -- Skip <offset> seconds from start of file.\n' \
+    '-z -- Stretch first section without IRIG-B frames to end on an integral\n' \
+    '      second point in output, thus retaining zero-phase IRIG-B offsets\n' \
+    '      in the remainder of the recording.' \
+    ''.format(prog)
     print(s, file=sys.stderr)
     sys.exit(code)
 
@@ -94,11 +98,12 @@ block_size = 50000
 start_sample = 0
 deflutter_depth = 1
 prescale = 1
-outrate = 96000
+outrate = 32000
 skip = 0
+silence_sync = False
 
 prog, args = sys.argv[0], sys.argv[1:]
-opts, args = getopt.getopt(args, 'f:is:d:h')
+opts, args = getopt.getopt(args, 'f:is:d:zh')
 for opt, val in opts:
     if opt == '-i':
         prescale = -1
@@ -109,6 +114,8 @@ for opt, val in opts:
     elif opt == '-d':
         print(val)
         deflutter_depth = float(val)
+    elif opt == '-z':
+        silence_sync = True
     elif opt == '-h':
         usage(0)
 
@@ -138,7 +145,7 @@ tracks = []
 for i in range(2, len(args), 2):
     s = jdsp.io.WaveSource(args[i])
     o = jdsp.io.WaveSink(args[i+1], outrate, 1, 2)
-    b = DelayBuffer(delay=timecode_delay, zero_stuff=False)
+    b = DelayBuffer(delay=0, zero_stuff=False)
     rs = ScalableResampler(tc_source.rate(), outrate, quality=50)
     tracks.append(Track(source=s, sink=o, buffer=b, resampler=rs))
 
@@ -148,7 +155,7 @@ for i in range(2, len(args), 2):
 tc_phase_buf = DelayBuffer(delay=pll_delay, zero_stuff=False)
 
 # Timecode track
-tc_sample_buf = DelayBuffer(delay=timecode_delay, zero_stuff=False)
+tc_sample_buf = DelayBuffer(delay=0, zero_stuff=False)
 
 # start_sample = 130813495 # Research area of T885-19 Epoch
 #   2966s
@@ -247,8 +254,17 @@ while True:
         # Determine the rescaling to attempt.
         #
         if not rescale:
-            # Keep this section unscaled. Write as is.
-            scale = np.linspace(0, samples, samples+1)[1:]
+            if silence_sync:
+                #
+                # Stretch these samples to end on a second boundary.
+                #
+                next_boundary = np.rint(samples / tc_source.rate())
+                if next_boundary == 0:
+                    next_boundary = 1
+                endpoint = next_boundary * tc_source.rate()
+            else:
+                endpoint = samples
+            scale = np.linspace(0, endpoint, samples+1)[1:]
         else:
             #
             # We've got frame data. Deflutter the audio between samples

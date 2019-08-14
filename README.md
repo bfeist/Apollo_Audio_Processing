@@ -41,15 +41,18 @@ deflutter
     [-i]
     [-s <skip-sec>]
     [-d <depth>]
+    [-z]
     <timecode-audio-in> <timecode-audio-out>
     [<audio-file-1-in> <audio-file-1-out> ...]]
 ```
   
-`-f` -- Stop processing if more than `<max-idle-sec>` seconds elapse without any detected timecode frames.
+`-f`  Stop processing if more than `<max-idle-sec>` seconds elapse without any detected timecode frames.
 
-`-i` -- Invert IRIG-B signal before decoding.
+`-i`  Invert IRIG-B signal before decoding.
   
-`-d` -- De-flutter depth (not usually needed, default=1).
+`-d`  De-flutter depth (not usually needed, default=1).
   
-`-s` -- Skip `<skip-sec>` seconds from start of all files before processing.
-  ```
+`-s`  Skip `<skip-sec>` seconds from start of all files before processing.
+
+`-z`  Add silence to force IRIG-B frames to land on integer second
+      points in output.
