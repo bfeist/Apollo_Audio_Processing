@@ -40,16 +40,18 @@ carry IRIG-B timecode, or a "trace" file from a previously processed IRIG-B WAV 
 an IRIG-B WAV file so that it can be used as a trace for other audio files, use `timecode` mode.
 To use a trace file, use `trace` mode.
 
-`    deflutter timecode [options] [<audio-files>]`
-`or: deflutter trace [options] <audio-files>`
+```    deflutter timecode [options] [<audio-files>]```
+```or: deflutter trace [options] <audio-files>```
 
 ### Timecode mode
 
-`timecode [-f <max-idle>] [-i] [-s <offset>] [-o <trace-data-out>]`
-`         [-t <timecode-audio-out>]`
-`         <timecode-audio-in>`
-`         [<audio-file-1-in> <audio-file-1-out>]`
-`         [<audio-file-2-in> <audio-file-2-out>]`
+```
+timecode [-f <max-idle>] [-i] [-s <offset>] [-o <trace-data-out>]
+         [-t <timecode-audio-out>]
+         <timecode-audio-in>
+         [<audio-file-1-in> <audio-file-1-out>]
+         [<audio-file-2-in> <audio-file-2-out>]
+```
 
 In timecode processing mode, the tape flutter and wow are extracted
 from an IRIG-B audio track. The flutter measurements can then be
@@ -77,8 +79,10 @@ track is not defluttered by default).
 
 ## Trace mode
 
-`trace <trace-data-file>`
-`      <audio-file-1-in> <audio-file-1-out>`
-`     [<audio-file-2-in> <audio-file-2-out>] ...`
+```
+trace <trace-data-file>`
+      <audio-file-1-in> <audio-file-1-out>
+     [<audio-file-2-in> <audio-file-2-out>] ...
+```
 
 The flutter measurements from `<trace-data-file>` will be used to deflutter all of the files provided on the command line.
