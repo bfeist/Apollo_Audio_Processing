@@ -2,6 +2,8 @@
 
 Welcome to the Apollo 13 in Real Time processing repository.
 
+## Prerequisites / dependencies
+
 The processing scripts in thie repository depend on a common DSP library
 that I have written, `jdsp`. You'll need to have `jdsp` installed in your Python
 environment before you begin. It's very easy to do, just use 'pip' and you'll
