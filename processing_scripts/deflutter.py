@@ -235,7 +235,6 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                 # Fetch the measured flutter in this region of samples.
                 #
                 playback_speed = tc_phase_buf.get(start_sample - skip, samples)
-                tc_phase_buf.consume(start_sample - skip, samples)
                 resample_speed = np.reciprocal(playback_speed)
 
                 #
