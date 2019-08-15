@@ -32,27 +32,51 @@ irig_b
 
 ## Tape defluttering
 
-You can use `deflutter.py` to remove flutter and precisely retime audio tracks, provided one of
-those tracks is a dedicated IRIG-B timecode stream.
+You can use `deflutter.py` to remove flutter and precisely re-time audio tracks, provided you have
+an appropriate IRIG-B timing source. An IRIG-B timing source can either be a WAV file known to
+carry IRIG-B timecode, or a "trace" file from a previously processed IRIG-B WAV file. To process
+an IRIG-B WAV file so that it can be used as a trace for other audio files, use `timecode` mode.
+To use a trace file, use `trace` mode.
 
-```
-deflutter
-    [-f <max-idle-sec>]
-    [-i]
-    [-s <skip-sec>]
-    [-d <depth>]
-    [-z]
-    <timecode-audio-in> <timecode-audio-out>
-    [<audio-file-1-in> <audio-file-1-out> ...]]
-```
-  
-`-f`  Stop processing if more than `<max-idle-sec>` seconds elapse without any detected timecode frames.
+`    deflutter timecode [options] [<audio-files>]`
+`or: deflutter trace [options] <audio-files>`
 
-`-i`  Invert IRIG-B signal before decoding.
-  
-`-d`  De-flutter depth (not usually needed, default=1).
-  
-`-s`  Skip `<skip-sec>` seconds from start of all files before processing.
+### Timecode mode
 
-`-z`  Add silence to force IRIG-B frames to land on integer second
-      points in output.
+`timecode [-f <max-idle>] [-i] [-s <offset>] [-o <trace-data-out>]`
+`         [-t <timecode-audio-out>]`
+`         <timecode-audio-in>`
+`         [<audio-file-1-in> <audio-file-1-out>]`
+`         [<audio-file-2-in> <audio-file-2-out>]`
+
+In timecode processing mode, the tape flutter and wow are extracted
+from an IRIG-B audio track. The flutter measurements can then be
+applied immediately to other audio tracks, or they can be saved
+to a trace file, where they can be loaded and used for a later job.
+
+`-i`
+
+Invert IRIG-B signal before decoding.
+
+`-s <offset>`
+
+Skip `<offset>` seconds from start of file. (This skip value will be written to the
+generated trace file, if one has been specified.)
+
+`-f <max-idle>`
+
+Stop processing if more than <max-idle> seconds elapse without any detected timecode frames.
+(floating point).
+
+`-t <timecode-audio-out>`
+
+Deflutter the timecode track and write and write it to `<timecode-audio-out>`. (Timecode
+track is not defluttered by default).
+
+## Trace mode
+
+`trace <trace-data-file>`
+`      <audio-file-1-in> <audio-file-1-out>`
+`     [<audio-file-2-in> <audio-file-2-out>] ...`
+
+The flutter measurements from `<trace-data-file>` will be used to deflutter all of the files provided on the command line.
