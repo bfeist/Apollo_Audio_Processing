@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 from numpy import linspace, empty, zeros, pi, exp, multiply, conj, angle
-from numpy import empty_like
+from numpy import empty_like, float, complex64
 from scipy.signal import convolve, firwin
 from ..util import gcd
 
@@ -8,7 +8,7 @@ def lowpass(rate, bw):
     taps = rate / bw
     if taps % 2 == 0:
         taps += 1
-    return taps, firwin(taps, bw, pass_zero=True, nyq=rate)
+    return taps, firwin(taps, bw, pass_zero=True, nyq=rate).astype(float)
     
 class ToneFollower(object):
     def __init__(self, rate, tone_hz, drift_bandwidth_hz, flutter_bandwidth_hz):
@@ -37,13 +37,13 @@ class ToneFollower(object):
         # Set up a post-mixing filter.
         #
         self.taps, self.coeff = lowpass(rate, drift_bandwidth_hz)
-        self.history = zeros(self.taps-1, dtype='complex64')
+        self.history = zeros(self.taps-1, dtype=complex64)
 
         #
         # Set up a post-FM demodulation filter.
         #
         self.angle_taps, self.acoeff = lowpass(rate, flutter_bandwidth_hz)
-        self.ahistory = zeros(self.angle_taps-1, dtype='float')
+        self.ahistory = zeros(self.angle_taps-1, dtype=float)
         
         #
         # FM demodulation requires one sample of history.
@@ -76,7 +76,7 @@ class ToneFollower(object):
         # Incorporate past samples into a buffer for
         # filtering the mixing output.
         #
-        buf = empty(len(data) + self.taps - 1, dtype='complex64')
+        buf = empty(len(data) + self.taps - 1, dtype=complex64)
         buf[0:self.taps-1] = self.history
         
         #
@@ -114,7 +114,7 @@ class ToneFollower(object):
         #
         # Set up an FM filter buffer.
         #
-        demodbuf = empty(len(data) + self.angle_taps - 1, dtype='float')
+        demodbuf = empty(len(data) + self.angle_taps - 1, dtype=float)
         demodbuf[0:self.angle_taps-1] = self.ahistory
         
         #

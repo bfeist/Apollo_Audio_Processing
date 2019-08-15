@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='jdsp',
-      version='0.6.1',
+      version='0.6.2',
       py_modules=[
           'jdsp.util.DelayBuffer',
           'jdsp.util.gcd',

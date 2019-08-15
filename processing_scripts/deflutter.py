@@ -238,6 +238,11 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                 resample_speed = np.reciprocal(playback_speed)
 
                 #
+                # Mark the phase samples as safe to destroy.
+                #
+                tc_phase_buf.consume(start_sample - skip, samples)
+
+                #
                 # Subtract the overall average out of the speed vector. This
                 # will ensure that the sum of all the flutter information between
                 # these two timecode points will be zero, allowing us to
@@ -486,13 +491,15 @@ def do_timecode_input(prog, args):
                 assert(total_samples == 0)
                 assert(arg == skip)
             elif cmd == 'rspd':
-                print(arg.start_sample, len(arg.timing))
                 DumpRespeedBlock(trace_out, arg)
 
         #
         # Now process any other audio tracks with the block.
         #
         total_samples = respeed_tracks(total_samples, cmd, arg, tracks)
+
+        if cmd == 'rspd':
+            print(arg.start_sample, len(arg.timing))
 
     #
     # Session is all done. Wrap things up.
