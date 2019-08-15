@@ -20,6 +20,6 @@ setup(name='jdsp',
       install_requires=[
           'numpy(>=1.10)',
           'scipy(>=0.16.0)',
-          'numba(>=0.45)'
+          'numba(>=0.40)'
       ]
 )
