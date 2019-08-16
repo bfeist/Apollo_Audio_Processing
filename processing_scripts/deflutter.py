@@ -135,15 +135,15 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
         #
         # Skip to the required point in the timecode.
         #
-        while total_samples < start_sample:
-            block_read_size = min(start_sample - total_samples, 100000)
+        while total_samples < skip:
+            block_read_size = min(skip - total_samples, 100000)
             tc_source.read(block_read_size)
             total_samples += block_read_size
 
         #
         # Tell the timecode decoder about the offset.
         #
-        tc_decoder.set_start_sample(skip)
+        tc_decoder.set_sample_number(skip)
 
         #
         # Yield a skip command so that the caller will do the same to
@@ -435,7 +435,7 @@ def do_timecode_input(prog, args):
     #
     # Compute the starting sample number.
     #
-    start_sample = skip * tc_source.rate()
+    start_sample = int(skip * tc_source.rate())
 
     #
     # Compute the sample count threshold for the timecode dead check.
@@ -477,8 +477,8 @@ def do_timecode_input(prog, args):
     total_samples = 0
 
     for cmd, arg in \
-        RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
-            block_size, deflutter_depth):
+        RespeedBlocksFromTimecode(tc_source, prescale, start_sample,
+            check_overflow, block_size, deflutter_depth):
 
         #
         # If writing a trace output file, examine and possibly dump this
@@ -584,7 +584,7 @@ def respeed_tracks(total_samples, cmd, arg, tracks):
         #
         for track in tracks:
             track_total = 0
-            while track_total_samples < start_sample:
+            while track_total < start_sample:
                 block_read_size = min(start_sample - track_total, 100000)
                 track.source.read(block_read_size)
                 track_total += block_read_size
