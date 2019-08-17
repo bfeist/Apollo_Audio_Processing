@@ -31,11 +31,11 @@ class ScalableResampler(object):
         out_rate really don't matter. The code will find the best true
         integer ratio for the combination.
         '''
-        
+
         # Make sure number of input samples is odd.
         if (quality % 2) == 0:
             quality += 1
-        
+
         #
         # Normalize the rates.
         #
@@ -79,14 +79,14 @@ class ScalableResampler(object):
         # on the top point.
         #
         taps = out_rate * (quality - 1)
-        
+
         #
         # Calculate the sinc unit sampling rate.
         # (1 = input rate equals output rate)
         # (.5 = input rate equals 1/2 output rate)
         #
         side = int(quality / 2)
-        
+
         space = np.linspace(-side, side, taps, endpoint=False)
         lanczos_space = np.linspace(-1, 1, taps, endpoint=False)
         self.sinc = np.sinc(space) * np.sinc(lanczos_space)
@@ -104,7 +104,7 @@ class ScalableResampler(object):
         input is scaled to 1.0.
         '''
         return self.window / self.in_stride / 2
-    
+
     def calculate_strides(self, scale):
         if len(self.history_d):
             delay = self.history_d[-1]
@@ -114,93 +114,208 @@ class ScalableResampler(object):
         rounded = np.rint(new_sample_deltas).astype(np.int)
         residual = new_sample_deltas[-1] - rounded[-1]
         return residual, rounded
-        
+
     def output_possible(self, input_scale_vec):
+        '''
+        Return number of samples that can be produced for timing vector.
+        '''
         #
         # How many output samples can we create with the input scale plan?
+        # First, the timing vector must be converted to strides relative to
+        # the current sinc window position.
         #
         _, calculated_strides = self.calculate_strides(input_scale_vec)
-        return self.output_possible_int(calculated_strides)
 
-    def output_possible_int(self, calculated_strides):
+        #
+        # Now compute the output possible using the stride schedule.
+        #
+        return self.output_possible__internal(calculated_strides)
+
+    def output_possible__internal(self, calculated_strides):
+        '''
+        Return number of samples that can be produced for stride schedule.
+        '''
+        #
+        # Get the offset at which the last sample in the schedule rests
+        # with respect to the start of the sinc window.
+        #
         total_stride = calculated_strides[-1]
-        return ((total_stride - self.window) // self.out_stride) + 1
-    
+
+        #
+        # Output samples can be produced from the schedule as long as the
+        # last sample in the schedule ends up in the last position of the
+        # sinc window, but no further in.
+        #
+        return ((total_stride - self.window + 1) // self.out_stride) + 1
+
+    def done(self, out=None):
+        '''
+        No more input samples are coming. Generate output from that assumption.
+        '''
+        #
+        # Where's the current ending sample in the sinc window scheme?
+        #
+        last_stride = self.history_d[-1]
+
+        #
+        # How many times can this last sample be pulled until it disappears
+        # from the window?
+        #
+        pulls_ok = last_stride // self.out_stride
+
+        #
+        # Place a fake zero sample so that it will be at the very end of the
+        # sinc window in the last output loop.
+        #
+        fake_delta = ((self.window - last_stride) - 1) \
+                     + pulls_ok * self.out_stride
+
+        oldlen = len(self.history)
+        newlen = oldlen + 1
+
+        data = np.empty(newlen, dtype=np.float)
+        data[:oldlen] = self.history
+        data[oldlen:] = 0.0
+
+        deltas = np.empty(newlen, dtype=np.float)
+        deltas[:oldlen] = self.history_d
+        deltas[oldlen:] = fake_delta
+
+        _, out = self.process__internal(data, deltas, out)
+
+        return out
+
     def process(self, data, scale, out=None):
+        #
+        # Every sample must have some duration.
+        #
+        assert(np.all(scale > 0.0))
+
         #
         # Set up some working buffers.
         #
-        assert(np.all(scale > 0.0))
         total_len = len(self.history) + len(data)
         deltas = np.empty(total_len, dtype=np.int)
         buf = np.empty(total_len, dtype=np.float)
-        
+
         #
         # From the input schedule, calculate a sinc stride schedule.
         # First, incorporate the current saved window samples.
         #
         deltas[:len(self.history)] = self.history_d
-        
+
         #
         # Now calculate the schedule for the new data.
         #
         new_residual, new_deltas = self.calculate_strides(scale)
         deltas[len(self.history):] = new_deltas
-        
+
+        #
+        # Set up the working sample buffer, incorporating the history buffer
+        # and the new samples.
+        #
+        buf[:len(self.history)] = self.history
+        buf[len(self.history):] = data
+
         #
         # To keep things very accurate, keep track of the rounding error
         # that was applied to the last input sample.
         #
         self.residual = new_residual
-        
+
+        consumed, out = self.process__internal(buf, deltas, out)
+
+        self.history = buf[consumed:]
+        self.history_d = deltas[consumed:]
+
+        return out
+
+    def process__internal(self, data, deltas, out):
+        '''
+        Internal interface. Works with data on a strided schedule.
+        '''
+        #
+        # Now calculate how many output samples we can produce from the
+        # current input buffer.
+        #
+        output_samples = self.output_possible__internal(deltas)
+
         if out is None:
             #
             # Construct the output.
             #
-            out = np.empty(self.output_possible_int(new_deltas),dtype=np.float)
+            out = np.empty(max(output_samples,0),dtype=np.float)
+
+        if output_samples <= 0:
+            #
+            # We can't produce any output right now. Just save things for
+            # later.
+            #
+            return 0, out
 
         #
-        # Set up the working sample buffer.
+        # Find the first sample outside of the window in the very first
+        # pass.
         #
-        buf[:len(self.history)] = self.history
-        buf[len(self.history):] = data
-        
+        start = np.where(deltas >= self.window)[0][0]
+
         #
-        # Prepare a long buffer with the previously saved samples concatenated
-        # with the new input samples.
+        # Will there be any unservicable samples left over at the end of
+        # the run?
         #
-        start = np.where(deltas >= len(self.sinc))[0][0]
-        stop = len(deltas)
-        
-        consumed, out = self.process_core(
-            start, stop, out, buf, self.sinc, deltas, self.out_stride
+        total_final_delta = (output_samples - 1) * self.out_stride
+        last_window_end = self.window + total_final_delta
+        beyonds = np.where(deltas >= last_window_end)[0]
+
+        if len(beyonds) == 0:
+            #
+            # No. Every sample in the schedule is servicable. (rare)
+            #
+            stop = len(deltas)
+        else:
+            #
+            # Yes. Stop at the first unservicable sample.
+            #
+            stop = beyonds[0]
+
+        #
+        # Everything is ready. Call the inner core.
+        #
+        consumed = self.process_core(
+            start, stop, out, data, self.sinc, deltas, self.out_stride
         )
-        
-        self.history = buf[consumed:]
-        self.history_d = deltas[consumed:]
-        
-        return out
+
+        return consumed, out
 
     @staticmethod
     @jit(nopython=True)
-    def process_core(start, stop, out, buf, sinc, deltas, out_stride):
+    def process_core(start, stop, out, samples, sinc, deltas, out_stride):
+        #
+        # This code has many PRECONDITIONS which must be ensured before
+        # it will run properly.
+        #
+        # assert(len(samples) == len(deltas))
+        # assert(start <= len(deltas))
+        # assert(stop <= len(deltas))
+        # assert(start <= stop)
+        # assert(np.all(deltas[:start] < len(sinc))
         #
         # Cache some variables
         #
         window = len(sinc)
-        
+
         i = 0
         j = 0
         k = start
         total_delta = 0
-        
+
         while True:
             #
             # Figure out what samples can be placed in the
             # current sinc window.
             #
             if k - j > 0:
-                out[i] = dot(buf[j:k], sinc[deltas[j:k]])
+                out[i] = dot(samples[j:k], sinc[deltas[j:k]])
             else:
                 # There are no samples in the window right now.
                 out[i] = 0.0
@@ -212,20 +327,23 @@ class ScalableResampler(object):
             #
             deltas[j:k] -= out_stride
             total_delta += out_stride
-            
+
             #
             # Handle deltas that have dropped off.
             #
-            while (j < stop) and deltas[j] < 0:
+            while deltas[j] < 0:
                 j += 1
 
             #
-            # We can continue as long as, after pulling,
-            # the last input sample sits right on the last sample of the
-            # window or beyond. We can't pull the last input sample earlier
-            # than this point because the sample after the last one (which
-            # hasn't arrived yet) might have to be pulled in as well, and we
-            # can't predict the future!
+            # We can continue as long as, after pulling, the last input
+            # sample sits right on the last sample of the window or beyond.
+            #
+            # We can't pull the last input sample any futher into the sinc
+            # window than this point because the sample after it (which hasn't
+            # arrived yet) might have to be pulled in as well, if that
+            # sample turns out to need to be inside this window, we'd have
+            # to go back into the past to modify the output. And that's
+            # not possible!
             #
             if k == stop:
                 #
@@ -235,13 +353,6 @@ class ScalableResampler(object):
 
             new_end = total_delta + window
 
-            if (k == stop - 1) and (deltas[k] < (new_end - 1)):
-                #
-                # We've got one sample left and it will be pulled in
-                # too far.
-                #
-                break
-            
             while k < stop and deltas[k] < new_end:
                 #
                 # It might be time to incorporate a new sample into the
@@ -249,11 +360,13 @@ class ScalableResampler(object):
                 #
                 deltas[k] -= total_delta
                 k += 1
-        
-        if k < stop:
-            deltas[-1] -= total_delta
-         
+
         #
-        # Return samples consumed and output.
+        # Update positions of samples that weren't processed.
         #
-        return j, out
+        deltas[k:] -= total_delta
+
+        #
+        # Return samples consumed.
+        #
+        return j

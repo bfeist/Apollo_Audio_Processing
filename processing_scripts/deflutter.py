@@ -496,10 +496,10 @@ def do_timecode_input(prog, args):
         #
         # Now process any other audio tracks with the block.
         #
-        total_samples = respeed_tracks(total_samples, cmd, arg, tracks)
+        total_samples, written = respeed_tracks(total_samples, cmd, arg, tracks)
 
         if cmd == 'rspd':
-            print(arg.start_sample, len(arg.timing))
+            print(arg.start_sample, len(arg.timing), written)
 
     #
     # Session is all done. Wrap things up.
@@ -593,6 +593,7 @@ def respeed_tracks(total_samples, cmd, arg, tracks):
         # Update global sample count.
         #
         total_samples = start_sample
+        written = 0
     elif cmd == 'rspd':
         #
         # Respeed command. Argument is a respeed block.
@@ -618,10 +619,11 @@ def respeed_tracks(total_samples, cmd, arg, tracks):
             track.sink.write(out.reshape((1, len(out))))
 
         total_samples += block_size
+        written = len(out)
     else:
         raise Exception('Unknown internal command.')
 
-    return total_samples
+    return total_samples, written
 
 if __name__ == '__main__':
     main(sys.argv[0], sys.argv[1:])
