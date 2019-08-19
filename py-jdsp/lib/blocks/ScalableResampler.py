@@ -92,10 +92,9 @@ class ScalableResampler(object):
         self.sinc = np.sinc(space) * np.sinc(lanczos_space)
         self.window = len(self.sinc)
         self.history = np.zeros(1, dtype=np.float)
-        self.history_d = np.array([taps/2], dtype=np.int)
+        self.history_d = np.array([taps - out_rate], dtype=np.int)
         self.in_stride = out_rate
         self.out_stride = in_rate
-        self.offset = out_rate - in_rate
         self.residual = 0.0
 
     def delay(self):
@@ -110,7 +109,7 @@ class ScalableResampler(object):
             delay = self.history_d[-1]
         else:
             delay = 0
-        new_sample_deltas =  delay - self.residual + scale * self.in_stride
+        new_sample_deltas =  delay + self.residual + scale * self.in_stride
         rounded = np.rint(new_sample_deltas).astype(np.int)
         residual = new_sample_deltas[-1] - rounded[-1]
         return residual, rounded
@@ -263,9 +262,9 @@ class ScalableResampler(object):
         # Will there be any unservicable samples left over at the end of
         # the run?
         #
-        total_final_delta = (output_samples - 1) * self.out_stride
+        total_final_delta = output_samples * self.out_stride
         last_window_end = self.window + total_final_delta
-        beyonds = np.where(deltas >= last_window_end)[0]
+        beyonds = np.where(deltas > last_window_end)[0]
 
         if len(beyonds) == 0:
             #
@@ -334,6 +333,16 @@ class ScalableResampler(object):
             while deltas[j] < 0:
                 j += 1
 
+            new_end = total_delta + window
+
+            while k < stop and deltas[k] < new_end:
+                #
+                # It is time to incorporate a new sample into the
+                # window.
+                #
+                deltas[k] -= total_delta
+                k += 1
+
             #
             # We can continue as long as, after pulling, the last input
             # sample sits right on the last sample of the window or beyond.
@@ -348,23 +357,10 @@ class ScalableResampler(object):
             if k == stop:
                 #
                 # No more samples left to pull in.
+                # Update positions of samples that weren't processed.
                 #
+                deltas[k:] -= total_delta
                 break
-
-            new_end = total_delta + window
-
-            while k < stop and deltas[k] < new_end:
-                #
-                # It might be time to incorporate a new sample into the
-                # window.
-                #
-                deltas[k] -= total_delta
-                k += 1
-
-        #
-        # Update positions of samples that weren't processed.
-        #
-        deltas[k:] -= total_delta
 
         #
         # Return samples consumed.
