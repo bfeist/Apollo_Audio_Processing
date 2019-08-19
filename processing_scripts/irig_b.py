@@ -9,7 +9,7 @@ import functools
 try:
     import itertools.izip as izip
 except ImportError:
-    pass
+    izip = zip
 
 IRIGBFrame = collections.namedtuple('IRIGBFrame',
     'seconds minutes hours days years control sbs absolute_sample')
@@ -44,8 +44,8 @@ def nasa_time(basis, f):
     year_seconds = (((((f.years * 365) + f.days) * 24 + f.hours) * 60 +
         f.minutes) * 60) + f.seconds
     mission_seconds = year_seconds - basis
-    hours = mission_seconds / 3600
-    minutes = (mission_seconds / 60) % 60
+    hours = mission_seconds // 3600
+    minutes = (mission_seconds // 60) % 60
     seconds = mission_seconds % 60
     return '%03d:%02d:%02d' % (hours, minutes, seconds)
 
@@ -53,9 +53,9 @@ def gmt_from_nasa(h, m, s, basis):
     mission_seconds = ((h * 60) + m) * 60 + s
     year_seconds = mission_seconds + basis
     s = year_seconds % 60
-    m = (year_seconds / 60) % 60
-    h = (year_seconds / 3600) % 24
-    d = (year_seconds / 86400) % 365
+    m = (year_seconds // 60) % 60
+    h = (year_seconds // 3600) % 24
+    d = (year_seconds // 86400) % 365
     return '%02dd %02dh %02dm %02ds' % (d, h, m, s)
 
 class IRIGBDeframer(object):

@@ -36,7 +36,7 @@ class WaveSource(object):
         
         channels = self._channels
         depth = self._depth
-        frame_count = len(data) / channels / depth
+        frame_count = len(data) // channels // depth
         
         if depth == 1:
             samples = numpy.fromstring(data, dtype=numpy.int8)
