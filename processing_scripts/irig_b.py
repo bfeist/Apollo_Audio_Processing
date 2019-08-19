@@ -4,8 +4,12 @@ from jdsp.io import WaveSource, WaveSink
 from jdsp.blocks import ZeroCrossDetector, HighPassFilter
 import numpy
 import collections
-import itertools
 import functools
+# Python 2 & 3 compatible way to get izip()
+try:
+    import itertools.izip as izip
+except ImportError:
+    pass
 
 IRIGBFrame = collections.namedtuple('IRIGBFrame',
     'seconds minutes hours days years control sbs absolute_sample')
@@ -268,7 +272,7 @@ class IRIGBDecoder(object):
         self.sample_number += len(data)
     
     def receive_pulses(self, start_sample_no, amplitudes):
-        for n, amplitude in itertools.izip(start_sample_no, amplitudes):
+        for n, amplitude in izip(start_sample_no, amplitudes):
             split_point = self.last_n_amplitudes.mean()
             self.last_n_amplitudes[self.amplitudes_i] = amplitude
             self.amplitudes_i = (self.amplitudes_i + 1) % 100
