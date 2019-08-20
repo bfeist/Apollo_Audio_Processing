@@ -10,6 +10,7 @@ from irig_b import IRIGBDecoder
 from collections import namedtuple
 from itertools import izip
 from functools import partial
+stderr = sys.stderr
 
 #
 # A track to be respeeded. Consists of a sample source, a resampler,
@@ -386,9 +387,9 @@ def usage(prog, code, msg=None):
     sys.exit(code)
 
 def samples_to_time(rate, n):
-    seconds = n / rate
-    h = seconds // 3600
-    m = (seconds // 60) % 60
+    seconds = float(n) / rate
+    h = int(seconds // 3600)
+    m = int((seconds // 60) % 60)
     s = seconds % 60
     return '{:03d}:{:02d}:{:06.3f}'.format(h, m, s)
      
@@ -406,7 +407,8 @@ def progress_report(inrate, outrate, cmd, arg, written):
     else:
         out_time = None
 
-    print(in_time, samples_read, out_time)
+    print(in_time, '{:06}'.format(samples_read), out_time, end='\r',
+        file=stderr)
 
     return samples_read
 
