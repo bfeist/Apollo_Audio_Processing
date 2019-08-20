@@ -9,6 +9,7 @@ from jdsp.util import DelayBuffer
 from irig_b import IRIGBDecoder
 from collections import namedtuple
 from itertools import izip
+from functools import partial
 
 #
 # A track to be respeeded. Consists of a sample source, a resampler,
@@ -384,6 +385,31 @@ def usage(prog, code, msg=None):
     print(s, file=sys.stderr)
     sys.exit(code)
 
+def samples_to_time(rate, n):
+    seconds = n / rate
+    h = seconds // 3600
+    m = (seconds // 60) % 60
+    s = seconds % 60
+    return '{:03d}:{:02d}:{:06.3f}'.format(h, m, s)
+     
+def progress_report(inrate, outrate, cmd, arg, written):
+    if cmd == 'rspd':
+        start_sample_number = arg.start_sample
+        samples_read = len(arg.timing)
+    else:
+        start_sample_number = 0
+        samples_read = arg
+
+    in_time = samples_to_time(inrate, start_sample_number)
+    if written is not None:
+        out_time = samples_to_time(outrate, written)
+    else:
+        out_time = None
+
+    print(in_time, samples_read, out_time)
+
+    return samples_read
+
 def main(prog, args):
     prog, args = sys.argv[0], sys.argv[1:]
 
@@ -475,6 +501,11 @@ def do_timecode_input(prog, args):
             quality=50)
         tracks.append(Track(source=s, resampler=rs, sink=o))
 
+    #
+    # Set up progress meter.
+    #
+    progress = partial(progress_report, tc_source.rate(), outrate)
+
     total_samples = 0
 
     for cmd, arg in \
@@ -497,10 +528,13 @@ def do_timecode_input(prog, args):
         #
         # Now process any other audio tracks with the block.
         #
-        total_samples, written = respeed_tracks(total_samples, cmd, arg, tracks)
+        if tracks:
+            written = respeed_tracks(total_samples, cmd, arg, tracks)
+        else:
+            written = None
 
-        if cmd == 'rspd':
-            print(arg.start_sample, len(arg.timing), written)
+        samples_read = progress(cmd, arg, written)
+        total_samples += samples_read
 
     #
     # Session is all done. Wrap things up.
@@ -517,7 +551,7 @@ def do_trace_input(prog, args):
     '''
     Trace input mode. Take an existing trace and apply it to other tracks.
     '''
-    outrate = 32000
+    outrate = 16000
 
     opts, args = getopt.getopt(args, 'h')
     for opt, val in opts:
@@ -535,6 +569,9 @@ def do_trace_input(prog, args):
     trace = open(trace_path, 'rb')
     block_source = iter(RespeedBlocksFromFile(trace))
 
+    if len(args) <  2:
+        usage(prog, 'Need at least one audio file to deflutter!')
+
     #
     # Set up all the input audio tracks.
     #
@@ -547,17 +584,21 @@ def do_trace_input(prog, args):
             quality=50)
         tracks.append(Track(source=s, resampler=rs, sink=o))
 
+    #
+    # Set up progress meter.
+    #
+    progress = partial(progress_report, s.rate(), outrate)
+
     total_samples = 0
 
     for cmd, arg in block_source:
         #
         # Respeed any tracks that are along for the ride.
         #
-        if cmd == 'rspd':
-            print(arg.start_sample, len(arg.timing))
-        elif cmd == 'skip':
-            print(0, arg)
-        total_samples = respeed_tracks(total_samples, cmd, arg, tracks)
+        written = respeed_tracks(total_samples, cmd, arg, tracks)
+
+        read_samples = progress(cmd, arg, written)
+        total_samples += read_samples
 
     #
     # Session is all done. Wrap things up.
@@ -593,7 +634,6 @@ def respeed_tracks(total_samples, cmd, arg, tracks):
         #
         # Update global sample count.
         #
-        total_samples = start_sample
         written = 0
     elif cmd == 'rspd':
         #
@@ -619,12 +659,11 @@ def respeed_tracks(total_samples, cmd, arg, tracks):
             out = track.resampler.process(audio, block.timing)
             track.sink.write(out.reshape((1, len(out))))
 
-        total_samples += block_size
         written = len(out)
     else:
         raise Exception('Unknown internal command.')
 
-    return total_samples, written
+    return written
 
 if __name__ == '__main__':
     main(sys.argv[0], sys.argv[1:])
