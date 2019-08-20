@@ -142,16 +142,16 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             total_samples += block_read_size
 
         #
-        # Tell the timecode decoder about the offset as well as the
-        # high-pass filter delay.
-        #
-        tc_decoder.set_sample_number(skip-timecode_delay)
-
-        #
         # Yield a skip command so that the caller will do the same to
         # its consumers.
         #
         yield 'skip', skip
+
+    #
+    # Tell the timecode decoder about the offset as well as the
+    # high-pass filter delay.
+    #
+    tc_decoder.set_sample_number(skip-timecode_delay)
 
     done = False
     while not done:
