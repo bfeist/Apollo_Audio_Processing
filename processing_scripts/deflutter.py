@@ -413,7 +413,7 @@ def progress_report(total, inrate, outrate, cmd, arg, written):
         in_time,
         '{:06}'.format(samples_read),
         out_time,
-        '{:04.1f}%'.format(done),
+        '{:04.1f}%'.format(done * 100.0),
         end='\r',
         file=stderr
     )
