@@ -137,10 +137,8 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
         #
         # Skip to the required point in the timecode.
         #
-        while total_samples < skip:
-            block_read_size = min(skip - total_samples, 100000)
-            tc_source.read(block_read_size)
-            total_samples += block_read_size
+        tc_source._w.setpos(skip)
+        total_samples += skip
 
         #
         # Yield a skip command so that the caller will do the same to
@@ -643,11 +641,7 @@ def respeed_tracks(total_samples, cmd, arg, tracks):
         # Fast forward each input track to the desired spot.
         #
         for track in tracks:
-            track_total = 0
-            while track_total < start_sample:
-                block_read_size = min(start_sample - track_total, 100000)
-                track.source.read(block_read_size)
-                track_total += block_read_size
+            track.source._w.setpos(start_sample)
 
         #
         # Update global sample count.
