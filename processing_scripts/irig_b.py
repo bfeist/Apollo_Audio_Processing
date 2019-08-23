@@ -2,6 +2,7 @@
 from __future__ import print_function
 from jdsp.io import WaveSource, WaveSink
 from jdsp.blocks import ZeroCrossDetector, HighPassFilter
+from datetime import datetime
 import numpy
 import collections
 import functools
@@ -13,8 +14,20 @@ except ImportError:
 
 IRIGBFrame = collections.namedtuple('IRIGBFrame',
     'seconds minutes hours days years control sbs absolute_sample')
+MissionBasis = collections.namedtuple('MissionBasis', 'all_balls year_ordinal')
 
-def frame_time(f):
+def frame_time(basis, f):
+    date = datetime.fromordinal(basis.year_ordinal + f.days)
+    return '%04d-%02d-%02d %02d:%02d:%02d Z' % (
+        date.year,
+        date.month,
+        date.day,
+        f.hours,
+        f.minutes,
+        f.seconds
+    )
+
+def full_frame_time(f):
     return '%05x %02dy %03dd %02dh %02dm %02ds' % (
         f.sbs,
         f.years,
@@ -24,12 +37,18 @@ def frame_time(f):
         f.seconds
     )
 
+def date_to_seconds(day, hour, minute, second):
+    return ((((day * 24) + hour) * 60 + minute) * 60) + second
+
 time_bases = {
     #
     # Apollo 11 range zero time is 13:32:00, July 16, 1969
     # That is day #197 (one-based)
     #
-    'a11' : (((197 * 24) + 13) * 60 + 32) * 60,
+    'a11' : MissionBasis(
+        all_balls=date_to_seconds(197, 13, 32, 0),
+        year_ordinal=datetime(1969, 1, 1).toordinal()
+    ),
 
     #
     # Apollo 13 range zero time is 19:13:00, April 11, 1970
@@ -37,21 +56,24 @@ time_bases = {
     #
     # That is day #101 (one-based)
     #
-    'a13' : (((101 * 24) + 19) * 60 + 13) * 60
+    'a13' : MissionBasis(
+        all_balls=date_to_seconds(101, 19, 13, 0),
+        year_ordinal=datetime(1970, 1, 1).toordinal()
+    )
 }
 
-def nasa_time(basis, f):
-    year_seconds = (((((f.years * 365) + f.days) * 24 + f.hours) * 60 +
-        f.minutes) * 60) + f.seconds
-    mission_seconds = year_seconds - basis
+def mission_time(basis, f):
+    year_seconds = date_to_seconds(f.years * 365 + f.days, f.hours, f.minutes,
+        f.seconds)
+    mission_seconds = year_seconds - basis.all_balls
     hours = mission_seconds // 3600
     minutes = (mission_seconds // 60) % 60
     seconds = mission_seconds % 60
     return '%03d:%02d:%02d' % (hours, minutes, seconds)
 
 def gmt_from_nasa(h, m, s, basis):
-    mission_seconds = ((h * 60) + m) * 60 + s
-    year_seconds = mission_seconds + basis
+    mission_seconds = date_to_seconds(0, h, m, s)
+    year_seconds = mission_seconds + basis.all_balls
     s = year_seconds % 60
     m = (year_seconds // 60) % 60
     h = (year_seconds // 3600) % 24
@@ -342,17 +364,23 @@ def main(args):
   block_size = int(rate)
   
   def got_frame(b, f):
+      mission = mission_time(b, f)
+      frame = frame_time(b, f)
       if labels:
           tm = '%f' % (float(f.absolute_sample) / rate)
-          print(tm + '\t' + tm + '\t' + nasa_time(b, f), frame_time(f))
+          print(tm + '\t' + tm + '\t' + mission, frame)
       else:
-          print(nasa_time(b, f), frame_time(f), '%09d' % f.absolute_sample)
+          print(mission, frame, '%09d' % f.absolute_sample)
 
   five_ms_samples = int(rate * 0.005)
   if (five_ms_samples % 2) == 0:
       five_ms_samples += 1
   hp = HighPassFilter(rate, five_ms_samples, 400.0)
-  decoder = IRIGBDecoder(rate, functools.partial(got_frame, mission_basis))
+
+  callback = functools.partial(got_frame, mission_basis)
+
+  decoder = IRIGBDecoder(rate, callback)
+
   decoder.set_sample_number(hp.delay() * -1)
   
   while True:
