@@ -49,3 +49,9 @@ class CyclicFilter(object):
             self.offset = end
         
         return out
+
+    def done(self, out=None):
+        '''This block induces no delay, so there is nothing to do.'''
+        if out is None:
+            out = numpy.empty(0, dtype='float')
+        return out
