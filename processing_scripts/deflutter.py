@@ -21,7 +21,7 @@ Track = namedtuple('Track', 'source resampler sink')
 #
 # A respeed block. Tells how to respeed a particular block of samples.
 #
-RespeedBlock = namedtuple('RespeedBlock', 'start_sample timing')
+RespeedBlock = namedtuple('RespeedBlock', 'start_sample timing timecode')
 
 #
 # On disk representation of the header of a respeed block.
@@ -68,7 +68,7 @@ def GetRespeedBlock(f):
         return None
     start_sample, timing_len = RespeedBlockHeaderStruct.unpack(b)
     timing = np.fromfile(f, dtype=np.float32, count=timing_len)
-    return RespeedBlock(start_sample, timing)
+    return RespeedBlock(start_sample, timing, None)
 
 def RespeedBlocksFromFile(f):
     '''
@@ -272,7 +272,8 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             #
             block = RespeedBlock(
                 start_sample=start_sample,
-                timing=scale
+                timing=scale,
+                timecode=frame
             )
             yield 'rspd',block
 
@@ -395,23 +396,42 @@ def progress_report(total, inrate, outrate, cmd, arg, written):
     if cmd == 'rspd':
         start_sample_number = arg.start_sample
         samples_read = len(arg.timing)
+        #
+        # The "argument" of this respeed block is the timing vector
+        # Gather some statistics.
+        #
+        rate = arg.timing[1:] - arg.timing[:-1]
+        speed_max = np.max(rate)
+        speed_min = np.min(rate)
+        speed_avg = np.average(rate)
+        timecode = arg.timecode
     else:
         start_sample_number = 0
         samples_read = arg
+        speed_max = 1.0
+        speed_min = 1.0
+        speed_avg = 1.0
+        timecode = None
+
+    if timecode is not None:
+        timecode = 'IRIG-B {:03d}:{:02d}:{:02d}:{:02d}'.format(
+            timecode.days,
+            timecode.hours,
+            timecode.minutes,
+            timecode.seconds
+        )
 
     in_time = samples_to_time(inrate, start_sample_number)
-    if written is not None:
-        out_time = samples_to_time(outrate, written)
-    else:
-        out_time = None
 
     done = float(start_sample_number) / float(total)
 
     print(
         in_time,
-        '{:06}'.format(samples_read),
-        out_time,
         '{:04.1f}%'.format(done * 100.0),
+        'respeed {:5.3f}/{:5.3f}/{:5.3f}'.format(
+            speed_min, speed_avg, speed_max
+        ),
+        timecode,
         end='\r',
         file=stderr
     )
