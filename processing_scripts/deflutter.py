@@ -407,7 +407,7 @@ def progress_report(total, inrate, outrate, cmd, arg, written):
     else:
         out_time = None
 
-    done = start_sample_number / total
+    done = float(start_sample_number) / float(total)
 
     print(
         in_time,
