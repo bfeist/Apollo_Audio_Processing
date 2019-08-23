@@ -407,7 +407,7 @@ def progress_report(total, inrate, outrate, cmd, arg, written):
     else:
         out_time = None
 
-    done = total / start_sample_number
+    done = start_sample_number / total
 
     print(
         in_time,
@@ -473,7 +473,7 @@ def do_timecode_input(prog, args):
     # Compute the starting sample number.
     #
     start_sample = int(skip * tc_source.rate())
-    total_samples = tc_source._w.getnframes()
+    total_samples = tc_source._w.getnframes() - start_sample
 
     #
     # Compute the sample count threshold for the timecode dead check.
