@@ -117,7 +117,14 @@ class ScalableResampler(object):
     def output_possible(self, input_scale_vec):
         '''
         Return number of samples that can be produced for timing vector.
+
+        If input_scale_vec is None, will return number of samples that can
+        be produced when calling "done()".
         '''
+        if input_scale_vec is None:
+            _, samples = self.output_possible__internal_done()
+            return samples
+
         #
         # How many output samples can we create with the input scale plan?
         # First, the timing vector must be converted to strides relative to
@@ -147,10 +154,7 @@ class ScalableResampler(object):
         #
         return ((total_stride - self.window + 1) // self.out_stride) + 1
 
-    def done(self, out=None):
-        '''
-        No more input samples are coming. Generate output from that assumption.
-        '''
+    def output_possible__internal_done(self):
         #
         # Where's the current ending sample in the sinc window scheme?
         #
@@ -161,6 +165,19 @@ class ScalableResampler(object):
         # from the window?
         #
         pulls_ok = last_stride // self.out_stride
+
+        return last_stride, pulls_ok
+
+    def done(self, out=None):
+        '''
+        No more input samples are coming. Generate output from that assumption.
+        '''
+        #
+        # Where's the current ending sample in the sinc window scheme and how
+        # many times can that sample be pulled until it disappears from the
+        # window?
+        #
+        last_stride, pulls_ok = self.output_possible__internal_done()
 
         #
         # Place a fake zero sample so that it will be at the very end of the
