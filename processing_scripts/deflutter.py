@@ -393,7 +393,7 @@ def samples_to_time(rate, n):
     s = seconds % 60
     return '{:03d}:{:02d}:{:06.3f}'.format(h, m, s)
      
-def progress_report(inrate, outrate, cmd, arg, written):
+def progress_report(total, inrate, outrate, cmd, arg, written):
     if cmd == 'rspd':
         start_sample_number = arg.start_sample
         samples_read = len(arg.timing)
@@ -407,8 +407,16 @@ def progress_report(inrate, outrate, cmd, arg, written):
     else:
         out_time = None
 
-    print(in_time, '{:06}'.format(samples_read), out_time, end='\r',
-        file=stderr)
+    done = total / start_sample_number
+
+    print(
+        in_time,
+        '{:06}'.format(samples_read),
+        out_time,
+        '{:04.1f}%'.format(done),
+        end='\r',
+        file=stderr
+    )
 
     return samples_read
 
@@ -465,6 +473,7 @@ def do_timecode_input(prog, args):
     # Compute the starting sample number.
     #
     start_sample = int(skip * tc_source.rate())
+    total_samples = tc_source._w.getnframes()
 
     #
     # Compute the sample count threshold for the timecode dead check.
@@ -506,7 +515,8 @@ def do_timecode_input(prog, args):
     #
     # Set up progress meter.
     #
-    progress = partial(progress_report, tc_source.rate(), outrate)
+    progress = partial(progress_report, total_samples, tc_source.rate(),
+        outrate)
 
     total_samples = 0
 
@@ -587,20 +597,26 @@ def do_trace_input(prog, args):
         tracks.append(Track(source=s, resampler=rs, sink=o))
 
     #
+    # Peek at the first source to see how many samples we expect to
+    # process.
+    #
+    total_samples = tracks[0].source._w.getnframes()
+
+    #
     # Set up progress meter.
     #
-    progress = partial(progress_report, s.rate(), outrate)
+    progress = partial(progress_report, total_samples, s.rate(), outrate)
 
-    total_samples = 0
+    samples_processed = 0
 
     for cmd, arg in block_source:
         #
         # Respeed any tracks that are along for the ride.
         #
-        written = respeed_tracks(total_samples, cmd, arg, tracks)
+        written = respeed_tracks(samples_processed, cmd, arg, tracks)
 
         read_samples = progress(cmd, arg, written)
-        total_samples += read_samples
+        samples_processed += read_samples
 
     #
     # Session is all done. Wrap things up.
