@@ -1,6 +1,6 @@
-# Apollo13Realtime
+# Apollo_Audio_Processing
 
-Welcome to the Apollo 13 in Real Time processing repository.
+Welcome to the Apollo audio processing repository.
 
 ## Prerequisites / dependencies
 
