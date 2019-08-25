@@ -193,9 +193,9 @@ class ScalableResampler(object):
         data[:oldlen] = self.history
         data[oldlen:] = 0.0
 
-        deltas = np.empty(newlen, dtype=np.float)
+        deltas = np.empty(newlen, dtype=np.int)
         deltas[:oldlen] = self.history_d
-        deltas[oldlen:] = fake_delta
+        deltas[oldlen:] = int(fake_delta)
 
         _, out = self.process__internal(data, deltas, out)
 
@@ -273,7 +273,16 @@ class ScalableResampler(object):
         # Find the first sample outside of the window in the very first
         # pass.
         #
-        start = np.where(deltas >= self.window)[0][0]
+        start = np.where(deltas >= self.window)[0]
+        if len(start) == 0:
+            #
+            # We're in a very rare scenario where the last servicable sample
+            # is exactly at the end of the current window.
+            # We must be flushing the very last output.
+            #
+            start = len(deltas)
+        else:
+            start = start[0]
 
         #
         # Will there be any unservicable samples left over at the end of

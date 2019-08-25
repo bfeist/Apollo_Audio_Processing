@@ -9,10 +9,10 @@ class HighPassFilter(object):
         coeff = firwin(taps, cutoff_freq, pass_zero=False, fs=rate)
         self.coeff = coeff.astype(float)
         self.history = zeros(self.taps-1, dtype=float)
-    
+
     def delay(self):
         return self.taps / 2
-    
+
     def process(self, data):
         buf = empty(len(data) + self.taps - 1, dtype=float)
         buf[0:self.taps-1] = self.history
@@ -20,3 +20,6 @@ class HighPassFilter(object):
         out = convolve(buf, self.coeff, mode='valid')
         self.history = buf[-(self.taps - 1):]
         return out
+
+    def done(self):
+        return self.process(zeros(self.taps/2, dtype=float))

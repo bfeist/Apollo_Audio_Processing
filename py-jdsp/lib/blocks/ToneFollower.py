@@ -155,3 +155,9 @@ class ToneFollower(object):
         self.counter = (self.counter + len(data)) % self.bottom_r
 
         return rate
+
+    def done(self):
+        '''
+        Finish processing by flushing all queued samples.
+        '''
+        return self.process(zeros(self.delay()))
