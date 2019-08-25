@@ -15,8 +15,9 @@ def get_arg(index):
 
 tape = get_arg(1)
 
-inputPath = 'E:/Apollo_13_Data_Delivery/44.1/original/'
-outputPath = 'E:/Apollo_13_Data_Delivery/44.1/2_concatenated/'
+inputPath = 'O:/Apollo 13 30-Track/44.1/original/'
+# inputPath = 'E:/Apollo_13_Data_Delivery/44.1/original/'
+outputPath = 'D:/concatenated/'
 # outputPath = 'F:/concat/'
 
 
@@ -32,20 +33,21 @@ for dirname, dirnames, filenames in os.walk(inputPath):
     # print path to all subdirectories first.
     for subdirname in dirnames:
         # print(os.path.join(dirname, subdirname))
-        match = re.match(r"A13_%s_(.).*_(HR.*)_.*" % tape, subdirname)
+        match = re.match(r"A13_%s_(HR.*?)_.*P(\d)" % tape, subdirname)
         if match:
             if firstmatch:
-                first_match_part_num = int(match.group(1))
-                first_match_tape_type = match.group(2)
+                first_match_part_num = int(match.group(2))
+                first_match_tape_type = match.group(1)
                 first_match_part_path = os.path.join(dirname, subdirname)
                 firstmatch = False
             else:
-                second_match_part_num = int(match.group(1))
+                second_match_part_num = int(match.group(2))
                 second_match_part_path = os.path.join(dirname, subdirname)
                 if first_match_part_num > second_match_part_num:  #switch them around if wrong order
                     temp_part_path = second_match_part_path
                     second_match_part_path = first_match_part_path
                     first_match_part_path = temp_part_path
+                break
 
 print ("first part path: " + first_match_part_path)
 print ("second part path: " + second_match_part_path)
@@ -58,7 +60,7 @@ for dirname, dirnames, filenames in os.walk(first_match_part_path):
     # print path to all filenames.
     for filename in filenames:
         if re.search(".*wav", filename):
-            channelmatch = re.match(".*_CH(.+).*\.wav", filename)
+            channelmatch = re.match(".*_CH(.+?)_.*?\.wav", filename)
             # print(os.path.join(dirname, filename))
             # print channelmatch.group(1)
             part1ChannelNumber = channelmatch.group(1)
@@ -66,14 +68,15 @@ for dirname, dirnames, filenames in os.walk(first_match_part_path):
 
             # create an output filename based on the part 1 name
             outputFilename = "A13_" + tape + "_" + first_match_tape_type + "_CH" + part1ChannelNumber + ".wav"
+            outputFoldername = "A13_" + tape + "_" + first_match_tape_type + "_16khz/"
 
             # Now find the matching second part file of that channel number
             for dirname2, dirnames2, filenames2 in os.walk(second_match_part_path):
                 for filename2 in filenames2:
                     if re.search(".*wav", filename2):
-                        channelmatch = re.match(".*_CH(.+).*\.wav", filename2)
+                        channelmatch = re.match(".*_CH(.+?)_.*?\.wav", filename2)
                         part2ChannelNumber = channelmatch.group(1)
-                        if part1ChannelNumber == part2ChannelNumber:
+                        if int(part1ChannelNumber) == int(part2ChannelNumber):
                             part2FilePath = os.path.join(dirname2, filename2)
                             break
 
@@ -84,19 +87,22 @@ for dirname, dirnames, filenames in os.walk(first_match_part_path):
             outputFilelist.write("file '" + part2FilePath + "'\n")
             outputFilelist.close()
 
+            print ("\tfirst file path: " + part1FilePath)
+            print ("\tsecond file path: " + part2FilePath)
+
             # FFMPEG command to concatenate and resample to 16000Hz
-            command = 'ffmpeg -f concat -safe 0 -i filelist.txt -ar 16000 ' + outputPath + outputFilename
+            command = 'ffmpeg -f concat -safe 0 -i filelist.txt -ar 16000 ' + outputPath + outputFoldername + outputFilename
 
             # FFMPEG command to concatenate
-            # command = 'ffmpeg -f concat -safe 0 -i filelist.txt -c copy ' + outputPath + outputFilename
+            # command = 'ffmpeg -f concat -safe 0 -i filelist.txt -c copy ' + outputPath + outputFoldername + outputFilename
 
 
             # Create folders and execute
-            if os.path.exists(outputPath + outputFilename):
-                sys.stdout.write("EXISTS, SKIPPING: " + command)
+            if os.path.exists(outputPath + outputFoldername + outputFilename):
+                sys.stdout.write("EXISTS, SKIPPING: " + command + "\n")
             else:
-                if not os.path.exists(outputPath):
-                    os.makedirs(outputPath)
+                if not os.path.exists(outputPath + outputFoldername):
+                    os.makedirs(outputPath + outputFoldername)
                 sys.stdout.write(command)
                 os.system(command)
 
