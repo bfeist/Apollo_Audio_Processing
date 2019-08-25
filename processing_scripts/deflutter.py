@@ -90,14 +90,14 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
     '''
     Iterator. Yields respeed directions from an IRIG-B timecode WAV.
     '''
-    queued_frames = []
+    queued_commands = []
     last_frame = None
 
     #
     # Set up a function to receive decoded timecode frames.
     #
     def frame_received(f):
-        queued_frames.append(f)
+        queued_commands.append(f)
 
     tc_follower = ToneFollower(tc_source.rate(), 1000, 200, 28)
     tc_decoder = IRIGBDecoder(tc_source.rate(), frame_received)
@@ -154,15 +154,25 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
 
     done = False
     while not done:
+        #
+        # Read the next chunk of timecode audio.
+        #
         tc_samples = tc_source.read(block_size)
 
         if tc_samples is None:
             #
+            # We've reached the end of the timecode audio.
             # Tell decoder and PLL that we're done.
             #
             tc_decoder.process(tc_hp.done())
-            tc_decoder.done()
             tc_phase_buf.add(tc_follower.done())
+
+            #
+            # Put a 'stop frame' into the processing queue, ensuring that
+            # the remaining audio (if any) is simply copied as is to the
+            # output.
+            #
+            queued_commands.append(None)
             done = True
         else:
             tc_samples = tc_samples[0]
@@ -177,14 +187,20 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             #
             tc_phase_buf.add(tc_follower.process(tc_samples))
 
+            #
+            # Update samples read.
+            #
+            total_samples += len(tc_samples)
+
         #
-        # See if the timecode decoder has found something.
+        # See if the timecode decoder has found something and/or if there
+        # are any processing commands queued.
         #
-        while queued_frames:
+        while queued_commands:
             #
             # Examine head frame information from queue.
             #
-            frame = queued_frames[0]
+            frame = queued_commands.pop(0)
 
             #
             # Do we have a previous frame?
@@ -192,20 +208,42 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             if last_frame is None:
                 #
                 # Don't have last frame yet, this is the first detected frame.
-                # Don't attempt to deflutter any audio up to this point. Just
-                # save it as is.
+                # Start from the skip point (if any).
                 #
                 start_sample = skip
-                rescale = False
             else:
+                #
+                # We have a previous frame. Start from there.
+                #
                 start_sample = last_frame.absolute_sample
-                rescale = True
+
+            if frame is not None:
+                #
+                # This is the start of a detected IRIG-B frame.
+                # It's start sample is where we should stop this resample
+                # chunk.
+                #
+                end_sample = frame.absolute_sample
+
+                #
+                # If we have a previous good decode frame, then this is a
+                # region we should rescale and deflutter. If not, we should
+                # just copy the chunk as is.
+                #
+                rescale = last_frame is not None
+            else:
+                #
+                # This is a stop processing command. Don't rescale nor
+                # deflutter any remaining audio.
+                #
+                end_sample = total_samples
+                rescale = False
 
             #
             # Consult PLL to see if it has the required speed information
             # about the discovered frame.
             #
-            samples = frame.absolute_sample - start_sample
+            samples = end_sample - start_sample
             have_speed = tc_phase_buf.have(start_sample - skip, samples) == 1
             if not have_speed:
                 #
@@ -245,9 +283,10 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
 
                 #
                 # Subtract the overall average out of the speed vector. This
-                # will ensure that the sum of all the flutter information between
-                # these two timecode points will be zero, allowing us to
-                # incorporate the fact that we know the timecode into the result.
+                # will ensure that the sum of all the flutter information
+                # between these two timecode points will be zero, allowing us
+                # to incorporate the fact that we know the timecode into the
+                # result.
                 #
                 resample_speed = resample_speed - np.average(resample_speed)
 
@@ -281,13 +320,6 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             # Try next frame.
             #
             last_frame = frame
-            queued_frames.pop(0)
-
-
-        #
-        # Update samples reader.
-        #
-        total_samples += block_size
 
         #
         # Check if there appears to be a problem with the timecode.
@@ -298,11 +330,18 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             else:
                 target = last_frame.absolute_sample + check_overflow
 
-            if total_samples > check_overflow:
+            if total_samples > target:
                 seconds = check_overflow // tc_source.rate()
-                print('Input overflow. More than %d seconds without timecode'
+                print('Input overflow. More than %d seconds without timecode.'
                     % seconds, file=sys.stderr)
-                done = True
+                print('Stopping at',
+                    samples_to_time(tc_source.rate(), total_samples),
+                    file=sys.stderr)
+
+                #
+                # Push a stop signal onto the frame queue.
+                #
+                queued_frames.append(None)
 
 def InitializeTraceFile(f, skip):
     header = TraceHeader(
