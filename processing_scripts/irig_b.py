@@ -196,7 +196,6 @@ class IRIGBDecoder(object):
 
         rate - Sampling rate, in hertz.
         receiver - Callable to receive decoded frames.'''
-        #assert((rate % 1000) == 0)
         self.zc = ZeroCrossDetector(rate, 1000.0)
         self.framer = IRIGBDeframer(receiver)
         self.quarter_phase_samples = int((rate / 1000.0) / 4.0)
@@ -225,10 +224,6 @@ class IRIGBDecoder(object):
         #
         peak_idxs = cross_points + self.quarter_phase_samples
         
-        #if self.sample_number == 3082240:
-        #    print "at", self.sample_number
-        #    print "zeros", cross_points + self.sample_number
-        
         #
         # If there's a deferred peak to collect, incorporate
         # it.
@@ -247,7 +242,6 @@ class IRIGBDecoder(object):
             # There's a deferred valley to collect.
             #
             assert(self.deferred_peak_index is None)
-            #print self.sample_number, self.deferred_valley_index, "deferred valley"
             if self.deferred_valley_index < len(data):
                 amplitude = self.stored_peak_value - \
                     data[self.deferred_valley_index]
@@ -270,7 +264,6 @@ class IRIGBDecoder(object):
         unservicable_p = peak_idxs[peak_idxs >= len(data)]
         
         if len(peaks) > len(valleys):
-            # print "deferring valley", self.sample_number, valley_idxs[-1]
             # We've got a deferred valley to process
             assert(len(peaks) - len(valleys) == 1)
             # Collect and store the peak value now.
@@ -280,7 +273,6 @@ class IRIGBDecoder(object):
             # Remove its peak from the collection list.
             peaks = peaks[:-1]
         elif len(unservicable_p):
-            # print "deferring peak", self.sample_number, unservicable_p[0]
             self.deferred_peak_index = unservicable_p[0] - len(data)
         
         amplitudes = peaks - valleys
@@ -298,8 +290,6 @@ class IRIGBDecoder(object):
             split_point = self.last_n_amplitudes.mean()
             self.last_n_amplitudes[self.amplitudes_i] = amplitude
             self.amplitudes_i = (self.amplitudes_i + 1) % 100
-            #if n >= 3084225 and n <= 3085471:
-            #    print n, split_point, amplitude
             self.framer.receive_bit(n, amplitude > split_point)
 
 def prepend(array, value, dtype):
