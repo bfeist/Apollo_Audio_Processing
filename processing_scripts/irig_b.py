@@ -2,10 +2,11 @@
 from __future__ import print_function
 from jdsp.io import WaveSource, WaveSink
 from jdsp.blocks import ZeroCrossDetector, HighPassFilter
-from datetime import datetime
 import numpy
 import collections
 import functools
+from apollo import TimeBases, GMTFromIRIG, MissionTimeFromIRIG
+from apollo import met_str, gmt_str
 # Python 2 & 3 compatible way to get izip()
 try:
     import itertools.izip as izip
@@ -14,18 +15,6 @@ except ImportError:
 
 IRIGBFrame = collections.namedtuple('IRIGBFrame',
     'seconds minutes hours days years control sbs absolute_sample')
-MissionBasis = collections.namedtuple('MissionBasis', 'all_balls year_ordinal')
-
-def frame_time(basis, f):
-    date = datetime.fromordinal(basis.year_ordinal + f.days - 1)
-    return '%04d-%02d-%02d %02d:%02d:%02d Z' % (
-        date.year,
-        date.month,
-        date.day,
-        f.hours,
-        f.minutes,
-        f.seconds
-    )
 
 def full_frame_time(f):
     return '%05x %02dy %03dd %02dh %02dm %02ds' % (
@@ -36,54 +25,6 @@ def full_frame_time(f):
         f.minutes,
         f.seconds
     )
-
-def date_to_seconds(day, hour, minute, second):
-    return ((((day * 24) + hour) * 60 + minute) * 60) + second
-
-time_bases = {
-    #
-    # Apollo 11 range zero time is 13:32:00, July 16, 1969
-    # That is day #197 (one-based)
-    #
-    'a11' : MissionBasis(
-        all_balls=date_to_seconds(197, 13, 32, 0),
-        year_ordinal=datetime(1969, 1, 1).toordinal()
-    ),
-
-    #
-    # Apollo 13 range zero time is 19:13:00, April 11, 1970
-    # (https://history.nasa.gov/SP-4029/Apollo_13h_Timeline.htm).
-    #
-    # That is day #101 (one-based)
-    #
-    'a13' : MissionBasis(
-        all_balls=date_to_seconds(101, 19, 13, 0),
-        year_ordinal=datetime(1970, 1, 1).toordinal()
-    )
-}
-
-def mission_time(basis, f):
-    year_seconds = date_to_seconds(f.years * 365 + f.days, f.hours, f.minutes,
-        f.seconds)
-    mission_seconds = year_seconds - basis.all_balls
-    if mission_seconds < 0:
-        mission_seconds *= -1
-        neg = '-'
-    else:
-        neg = ''
-    hours = mission_seconds // 3600
-    minutes = (mission_seconds // 60) % 60
-    seconds = mission_seconds % 60
-    return '%s%03d:%02d:%02d' % (neg, hours, minutes, seconds)
-
-def gmt_from_nasa(h, m, s, basis):
-    mission_seconds = date_to_seconds(0, h, m, s)
-    year_seconds = mission_seconds + basis.all_balls
-    s = year_seconds % 60
-    m = (year_seconds // 60) % 60
-    h = (year_seconds // 3600) % 24
-    d = (year_seconds // 86400) % 365
-    return '%02dd %02dh %02dm %02ds' % (d, h, m, s)
 
 class IRIGBDeframer(object):
     def __init__(self, receiver):
@@ -340,7 +281,7 @@ def main(args):
   if len(args) < 1:
     usage(prog)
 
-  mission_basis = time_bases.get(basis_name, None)
+  mission_basis = TimeBases.get(basis_name, None)
   if mission_basis is None:
     error('Unknown mission name.', 2)
 
@@ -359,8 +300,8 @@ def main(args):
   block_size = int(rate)
   
   def got_frame(b, f):
-      mission = mission_time(b, f)
-      frame = frame_time(b, f)
+      mission = met_str(MissionTimeFromIRIG(b, f))
+      frame = gmt_str(GMTFromIRIG(b, f))
       if labels:
           tm = '%f' % (float(f.absolute_sample) / rate)
           print(tm + '\t' + tm + '\t' + mission, frame)
