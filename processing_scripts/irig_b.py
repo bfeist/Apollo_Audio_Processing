@@ -36,7 +36,7 @@ class IRIGBDeframer(object):
         self.state_handle = self.receive_bit_in_idle
         self.bit_times = numpy.empty(10, dtype='int64')
         self.bit_times_i = 0
-    
+
     def receive_bit(self, abs_samp, bit):
         self.bit_times[self.bit_times_i] = abs_samp
         self.bit_times_i = (self.bit_times_i + 1) % 10
@@ -45,7 +45,7 @@ class IRIGBDeframer(object):
         if bit:
             self.word |= 1
         self.state_handle(bit)
-        
+
     def receive_bit_in_idle(self, bit):
         if self.word == 0xff3fc:
             # print 'DOUBLE SYNC'
@@ -152,24 +152,24 @@ class IRIGBDecoder(object):
         self.deferred_peak_index = None
         self.deferred_valley_index = None
         self.sample_number = 0
-    
+
     def set_sample_number(self, n):
         '''Set the starting sample number, useful if input is delayed.'''
         self.sample_number = n
-    
+
     def process(self, data):
         '''Decode the given data, returning frames found, if any.'''
         #
         # Detect plausible zero crossings in the data.
         #
         cross_points = self.zc.process(data)
-        
+
         #
         # Calculate the peak waveform points given the zero crossing
         # indexes.
         #
         peak_idxs = cross_points + self.quarter_phase_samples
-        
+
         #
         # If there's a deferred peak to collect, incorporate
         # it.
@@ -200,15 +200,15 @@ class IRIGBDecoder(object):
                 self.deferred_valley_index = None
             else:
                 self.deferred_valley_index -= len(data)
-        
+
         valley_idxs = peak_idxs + self.half_phase_samples
-        
+
         servicable_p = peak_idxs[peak_idxs < len(data)]
         servicable_v = valley_idxs[valley_idxs < len(data)]
         peaks = data[servicable_p]
         valleys = data[servicable_v]
         unservicable_p = peak_idxs[peak_idxs >= len(data)]
-        
+
         if len(peaks) > len(valleys):
             # We've got a deferred valley to process
             assert(len(peaks) - len(valleys) == 1)
@@ -220,7 +220,7 @@ class IRIGBDecoder(object):
             peaks = peaks[:-1]
         elif len(unservicable_p):
             self.deferred_peak_index = unservicable_p[0] - len(data)
-        
+
         amplitudes = peaks - valleys
 
         if len(amplitudes):
@@ -228,9 +228,9 @@ class IRIGBDecoder(object):
                 servicable_p + self.sample_number - self.quarter_phase_samples,
                 amplitudes
             )
-        
+
         self.sample_number += len(data)
-    
+
     def receive_pulses(self, start_sample_no, amplitudes):
         for n, amplitude in izip(start_sample_no, amplitudes):
             split_point = self.last_n_amplitudes.mean()
@@ -244,92 +244,145 @@ def prepend(array, value, dtype):
     n[1:] = array
     return n
 
+def frame_dump_audacity(b, rate, f):
+    mission = met_str(MissionTimeFromIRIG(b, f))
+    frame = gmt_str(GMTFromIRIG(b, f))
+    tm = '%f' % (float(f.absolute_sample) / rate)
+    print(tm + '\t' + tm + '\t' + mission, frame)
+
+def frame_dump_plain(b, rate, f):
+    mission = met_str(MissionTimeFromIRIG(b, f))
+    frame = gmt_str(GMTFromIRIG(b, f))
+    print(mission, frame, '%09d' % f.absolute_sample)
+
+def frame_dump_raw(b, rate, f):
+    print(full_frame_time(f))
+
+def start_dump_adobe(b, rate):
+    print('Name', 'Start', 'Duration', 'Time Format', 'Type', 'Description',
+        sep='\t')
+
+def frame_dump_adobe(b, rate, f):
+    met = met_str(MissionTimeFromIRIG(b, f))
+    gmt = gmt_str(GMTFromIRIG(b, f))
+    sec = float(f.absolute_sample) / rate
+    h = int(sec / 3600.0)
+    m = int(sec / 60.0) % 60
+    s = sec % 60
+    st = '%d:%d:%09.6f' % (h, m, s)
+    print(met, st, '0:0:0', 'decimal', 'Cue', gmt, sep='\t')
+
 def main(args):
-  import getopt
+    import getopt
 
-  def usage(prog):
-    print('usage:', prog, '[-i] [-l] [-b <base>] <wav-file>', file=sys.stderr)
-    print('-i  Invert audio before processing.', file=sys.stderr)
-    print('-l  Write Audacity-compatible labels on output.', file=sys.stderr)
-    print('-b  Translate time for specific mission basis.', file=sys.stderr)
-    print('    (Available bases: {}).'.format(' '.join(time_bases.keys())),
+    def usage(prog):
+      print('usage:', prog, '[-i] [-a|-p|-l|-r] [-b <base>] <wav-file>',
           file=sys.stderr)
-    sys.exit(1)
+      print('-i  Invert audio before processing.', file=sys.stderr)
+      print('-b  Translate time for specific mission basis.', file=sys.stderr)
+      print('    (Available bases: {}).'.format(' '.join(time_bases.keys())),
+            file=sys.stderr)
+      print('  Options for output', file=sys.stderr)
+      print('-l  Write Audacity-compatible labels on output.', file=sys.stderr)
+      print('-a  Write Adobe Audition markers on output.', file=sys.stderr)
+      print('-p  Write plain labels on output.', file=sys.stderr)
+      print('-r  Write raw labels on output.', file=sys.stderr)
 
-  def error(msg, code):
-    print(msg, file=sys.stderr)
-    sys.exit(code)
+      sys.exit(1)
 
-  def fatal(msg):
-    raise Exception(msg)
+    def error(msg, code):
+        print(msg, file=sys.stderr)
+        sys.exit(code)
 
-  prog = args[0]
-  args = args[1:]
-  invert = False
-  labels = False
-  basis_name = 'a11'
+    def fatal(msg):
+        raise Exception(msg)
 
-  opts, args = getopt.getopt(args, 'ilb:')
-  for opt, val in opts:
-      if opt == '-i':
-          invert = True
-      elif opt == '-l':
-          labels = True
-      elif opt == '-b':
-          basis_name = val.lower()
-      
-  if len(args) < 1:
-    usage(prog)
+    prog = args[0]
+    args = args[1:]
+    invert = False
+    styles = set()
 
-  mission_basis = TimeBases.get(basis_name, None)
-  if mission_basis is None:
-    error('Unknown mission name.', 2)
+    basis_name = 'a11'
 
-  in_file = args[0]
+    opts, args = getopt.getopt(args, 'arpilhb:')
+    for opt, val in opts:
+        if opt == '-i':
+            invert = True
+        elif opt == '-l':
+            styles.add('audacity')
+        elif opt == '-a':
+            styles.add('adobe')
+        elif opt == '-r':
+            styles.add('raw')
+        elif opt == '-p':
+            styles.add('plain')
+        elif opt == '-b':
+            basis_name = val.lower()
+        elif opt == '-h':
+            usage(prog)
 
-  try:
-    src = WaveSource(in_file)
-  except:
-    error('Can\'t open input file', 2)
+    if len(args) < 1:
+        usage(prog)
 
-  rate = src.rate()
-  channels = src.channels()
-  if channels != 1:
-      error('Only mono for now')
-    
-  block_size = int(rate)
-  
-  def got_frame(b, f):
-      mission = met_str(MissionTimeFromIRIG(b, f))
-      frame = gmt_str(GMTFromIRIG(b, f))
-      if labels:
-          tm = '%f' % (float(f.absolute_sample) / rate)
-          print(tm + '\t' + tm + '\t' + mission, frame)
-      else:
-          print(mission, frame, '%09d' % f.absolute_sample)
+    if len(styles) > 1:
+        error('More than one label style specified. Choose only one.')
+    elif len(styles) == 0:
+        style = 'audacity'
+    else:
+        style = styles.pop()
 
-  five_ms_samples = int(rate * 0.005)
-  if (five_ms_samples % 2) == 0:
-      five_ms_samples += 1
-  hp = HighPassFilter(rate, five_ms_samples, 400.0)
+    mission_basis = TimeBases.get(basis_name, None)
+    if mission_basis is None:
+        error('Unknown mission name.', 2)
 
-  callback = functools.partial(got_frame, mission_basis)
+    in_file = args[0]
 
-  decoder = IRIGBDecoder(rate, callback)
+    try:
+        src = WaveSource(in_file)
+    except:
+        error('Can\'t open input file', 2)
 
-  decoder.set_sample_number(hp.delay() * -1)
-  
-  while True:
-    frames = src.read(block_size)
-    if frames is None:
-      break
-    
-    samples = frames[0]
-    if invert:
-        samples = samples * -1.0
-    filtered = hp.process(samples)
-    decoder.process(filtered)
-    
+    rate = src.rate()
+    channels = src.channels()
+    if channels != 1:
+          error('Only mono for now')
+
+    block_size = int(rate)
+
+    five_ms_samples = int(rate * 0.005)
+    if (five_ms_samples % 2) == 0:
+        five_ms_samples += 1
+    hp = HighPassFilter(rate, five_ms_samples, 400.0)
+
+    if style == 'audacity':
+        dump = frame_dump_audacity
+    elif style == 'adobe':
+        start_dump_adobe(mission_basis, rate)
+        dump = frame_dump_adobe
+    elif style == 'raw':
+        dump = frame_dump_raw
+    elif style == 'plain':
+        dump = frame_dump_plain
+    else:
+        error('Internal error while selecting dump format.')
+
+    callback = functools.partial(dump, mission_basis, rate)
+
+    decoder = IRIGBDecoder(rate, callback)
+
+    decoder.set_sample_number(hp.delay() * -1)
+
+    while True:
+        frames = src.read(block_size)
+        if frames is None:
+            break
+
+        samples = frames[0]
+        if invert:
+            samples = samples * -1.0
+        filtered = hp.process(samples)
+        decoder.process(filtered)
+
 if __name__ == '__main__':
-  import sys
-  main(sys.argv)
+    import sys
+    main(sys.argv)
