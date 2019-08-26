@@ -17,7 +17,7 @@ IRIGBFrame = collections.namedtuple('IRIGBFrame',
 MissionBasis = collections.namedtuple('MissionBasis', 'all_balls year_ordinal')
 
 def frame_time(basis, f):
-    date = datetime.fromordinal(basis.year_ordinal + f.days)
+    date = datetime.fromordinal(basis.year_ordinal + f.days - 1)
     return '%04d-%02d-%02d %02d:%02d:%02d Z' % (
         date.year,
         date.month,
@@ -66,10 +66,15 @@ def mission_time(basis, f):
     year_seconds = date_to_seconds(f.years * 365 + f.days, f.hours, f.minutes,
         f.seconds)
     mission_seconds = year_seconds - basis.all_balls
+    if mission_seconds < 0:
+        mission_seconds *= -1
+        neg = '-'
+    else:
+        neg = ''
     hours = mission_seconds // 3600
     minutes = (mission_seconds // 60) % 60
     seconds = mission_seconds % 60
-    return '%03d:%02d:%02d' % (hours, minutes, seconds)
+    return '%s%03d:%02d:%02d' % (neg, hours, minutes, seconds)
 
 def gmt_from_nasa(h, m, s, basis):
     mission_seconds = date_to_seconds(0, h, m, s)
