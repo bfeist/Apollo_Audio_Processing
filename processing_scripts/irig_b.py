@@ -14,7 +14,7 @@ except ImportError:
     izip = zip
 
 IRIGBFrame = collections.namedtuple('IRIGBFrame',
-    'seconds minutes hours days years control sbs absolute_sample')
+    'seconds minutes hours days years control sbs absolute_sample ok_sbs_tm')
 
 def full_frame_time(f):
     return '%05x %02dy %03dd %02dh %02dm %02ds' % (
@@ -122,6 +122,14 @@ class IRIGBDeframer(object):
                 self.state_handle = self.receive_bit_in_idle
 
     def dump_frame(self):
+        #
+        # There's no parity or other error checking in IRIG-B. But there
+        # is some redundancy we can use to check for errors. The SBS field
+        # should theoretically match the hours, minutes and seconds fields.
+        #
+        sbs = self.sbs_low | (self.sbs_high << 9)
+        sbs_tm_ok = sbs == (self.hours * 3600 + self.minutes * 60 + self.seconds)
+
         frame = IRIGBFrame(
             self.seconds,
             self.minutes,
@@ -129,8 +137,9 @@ class IRIGBDeframer(object):
             self.days_low + self.days_high * 100,
             self.years,
             self.control_low | (self.control_high << 9),
-            self.sbs_low | (self.sbs_high << 9),
-            self.frame_abs_samp
+            sbs,
+            self.frame_abs_samp,
+            sbs_tm_ok
         )
         self.receiver(frame)
 
@@ -244,6 +253,10 @@ def prepend(array, value, dtype):
     n[1:] = array
     return n
 
+def frame_filter(cb, b, rate, f):
+    if f.ok_sbs_tm and f.years == 0:
+        cb(b, rate, f)
+
 def frame_dump_audacity(b, rate, f):
     mission = met_str(MissionTimeFromIRIG(b, f))
     frame = gmt_str(GMTFromIRIG(b, f))
@@ -283,6 +296,7 @@ def main(args):
       print('    (Available bases: {}).'.format(' '.join(time_bases.keys())),
             file=sys.stderr)
       print('  Options for output', file=sys.stderr)
+      print('-v  Write all frames to output, even bad ones.', file=sys.stderr)
       print('-l  Write Audacity-compatible labels on output.', file=sys.stderr)
       print('-a  Write Adobe Audition markers on output.', file=sys.stderr)
       print('-p  Write plain labels on output.', file=sys.stderr)
@@ -300,11 +314,12 @@ def main(args):
     prog = args[0]
     args = args[1:]
     invert = False
+    all_frames = False
     styles = set()
 
     basis_name = 'a11'
 
-    opts, args = getopt.getopt(args, 'arpilhb:')
+    opts, args = getopt.getopt(args, 'arpilhb:v')
     for opt, val in opts:
         if opt == '-i':
             invert = True
@@ -318,6 +333,8 @@ def main(args):
             styles.add('plain')
         elif opt == '-b':
             basis_name = val.lower()
+        elif opt == '-v':
+            all_frames = True
         elif opt == '-h':
             usage(prog)
 
@@ -366,7 +383,10 @@ def main(args):
     else:
         error('Internal error while selecting dump format.')
 
-    callback = functools.partial(dump, mission_basis, rate)
+    if all_frames:
+        callback = functools.partial(dump, mission_basis, rate)
+    else:
+        callback = functools.partial(frame_filter, dump, mission_basis, rate)
 
     decoder = IRIGBDecoder(rate, callback)
 
