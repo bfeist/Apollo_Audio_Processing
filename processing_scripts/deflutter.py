@@ -24,6 +24,12 @@ Track = namedtuple('Track', 'source resampler sink')
 RespeedBlock = namedtuple('RespeedBlock', 'start_sample timing timecode')
 
 #
+# A warning block. Warns that the respeed seems unusual. Only emitted from
+# timecode sources.
+#
+WarningBlock = namedtuple('WarningBlock', 'start_sample rate timecode')
+
+#
 # On disk representation of the header of a respeed block.
 #
 RespeedBlockHeaderStruct = struct.Struct('QI')
@@ -300,6 +306,15 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                 # samples into the time region between the timecode points.
                 #
                 scale = np.linspace(0, desired_samples, samples+1)[1:]
+
+                #
+                # Put some checks in place. Print a warning if the new playback
+                # rate exceeds the bounds 80%-%125 (4/5 - 5/4).
+                #
+                overall_rate = float(desired_samples) / samples
+                if overall_rate < 0.8 or overall_rate > 1.25:
+                    yield 'warn', WarningBlock(start_sample, overall_rate,
+                        frame)
 
                 #
                 # Incorporate the flutter measurements into the scale.
@@ -593,6 +608,15 @@ def do_timecode_input(prog, args):
                 assert(arg == skip)
             elif cmd == 'rspd':
                 DumpRespeedBlock(trace_out, arg)
+
+        #
+        # Warning blocks should print a message.
+        #
+        if cmd == 'warn':
+            when = samples_to_time(tc_source.rate(), arg.start_sample)
+            print('WARNING:', 'unusual respeed rate', arg.rate, 'at', when,
+                'timecode', arg.timecode)
+            continue
 
         #
         # Now process any other audio tracks with the block.
