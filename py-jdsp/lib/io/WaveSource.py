@@ -1,23 +1,23 @@
 #!/usr/bin/env python
 import numpy
-import wave
+from ..util import JWaveSource
 
 class WaveSource(object):
     def __init__(self, path):
-        self._w = wave.open(path, 'r')
+        self._w = JWaveSource(path)
         self._rate = self._w.getframerate()
         self._channels = self._w.getnchannels()
         self._depth = self._w.getsampwidth()
-    
+
     def rate(self):
         return self._rate
-    
+
     def channels(self):
         return self._channels
-    
+
     def depth(self):
         return self._depth
-    
+
     def read(self, frame_count):
         '''Read next available samples from file.
         
@@ -37,7 +37,7 @@ class WaveSource(object):
         channels = self._channels
         depth = self._depth
         frame_count = len(data) // channels // depth
-        
+
         if depth == 1:
             samples = numpy.fromstring(data, dtype=numpy.int8)
             samples = samples.reshape((channels, frame_count), order='F')
@@ -58,5 +58,5 @@ class WaveSource(object):
                       (samples[0::3] << 8)
             samples = samples.reshape((channels, frame_count), order='F')
             samples = samples / float(0x80000000)
-        
+
         return samples

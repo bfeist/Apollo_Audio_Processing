@@ -5,3 +5,5 @@ from .RationalResampler import RationalResampler
 from .ScalableResampler import ScalableResampler
 from .CyclicFilter import CyclicFilter
 from .ToneFollower import ToneFollower
+from .MatchedFilter import MatchedFilter
+
