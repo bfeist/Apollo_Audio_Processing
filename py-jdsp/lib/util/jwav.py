@@ -7,12 +7,13 @@ import struct
 import collections
 
 WAVEHeader = collections.namedtuple('WAVEHeader', 'id size format')
-FMTHeader = collections.namedtuple('FMTHeader',
+FMTChunk = collections.namedtuple('FMTChunk',
     'AudioFormat NumChannels SampleRate ByteRate BlockAlign BitsPerSample')
 ChunkHeader = collections.namedtuple('ChunkHeader', 'name size')
 ChunkLocator = collections.namedtuple('ChunkLocator', 'offset header')
 
-FMTHeaderStruct = struct.Struct('<HHIIHH')
+FMTChunkStruct = struct.Struct('<HHIIHH')
+Int = struct.Struct('<I')
 
 def WAVEHeader_from_src(f):
     hdr = f.read(12)
@@ -22,15 +23,18 @@ def WAVEHeader_from_src(f):
 def WAVEHeader_to_bytes(hdr):
     return struct.pack('<4sI4s', hdr.id, hdr.size, hdr.format)
 
-def FMTHeader_from_src(f):
-    return FMTHeader_from_bytes(f.read(FMTHeaderStruct.size))
+def WAVEHeader_size():
+    return 12
 
-def FMTHeader_from_bytes(hdr):
-    assert(len(hdr) == FMTHeaderStruct.size)
-    return FMTHeader(*FMTHeaderStruct.unpack(hdr))
+def FMTChunk_from_src(f):
+    return FMTChunk_from_bytes(f.read(FMTChunkStruct.size))
 
-def FMTHeader_to_bytes(hdr):
-    return FMTHeaderStruct.pack(*hdr)
+def FMTChunk_from_bytes(hdr):
+    assert(len(hdr) == FMTChunkStruct.size)
+    return FMTChunk(*FMTChunkStruct.unpack(hdr))
+
+def FMTChunk_to_bytes(hdr):
+    return FMTChunkStruct.pack(*hdr)
 
 def ChunkHeader_from_src(f):
     return ChunkHeader_from_bytes(f.read(8))
@@ -71,9 +75,9 @@ def ChunkLocators_from_file(f, rewind=True, limit=None):
         #
         hdr = ChunkHeader_from_bytes(hdr_b)
         locator = ChunkLocator(f.tell(), hdr)
-        
+
         yield locator
-        
+
         #
         # Seek to next chunk header.
         #
@@ -86,13 +90,14 @@ def ChunkLocators_from_file(f, rewind=True, limit=None):
 def compute_byte_rate(channels, sample_rate, bits_per_sample):
     return channels * sample_rate * (bits_per_sample // 8)
 
+class FormatError(Exception):
+    pass
+class AlreadyReadingData(Exception):
+    pass
+class AlreadyWritingData(Exception):
+    pass
+
 class JWaveSource(object):
-    class FormatError(Exception):
-        pass
-
-    class AlreadyReadingData(Exception):
-        pass
-
     def __init__(self, path):
         self.path = path
         wav = self._w = open(path, 'rb')
@@ -124,12 +129,11 @@ class JWaveSource(object):
         #
         # Check and break out the format header.
         #
-        self.assert_fmt(fmt_locator.header.size >= FMTHeaderStruct.size,
+        self.assert_fmt(fmt_locator.header.size >= FMTChunkStruct.size,
             '"fmt " block not big enough to be correct.'
         )
         wav.seek(fmt_locator.offset, 0)
-        fmt = FMTHeader_from_src(wav)
-        print fmt
+        fmt = FMTChunk_from_src(wav)
 
         #
         # Only PCM files supported at the moment.
@@ -169,6 +173,10 @@ class JWaveSource(object):
     #
     # Python wave module compatability.
     #
+    def getnframes(self):
+        data_locator = self.locators.get('data')
+        return data_locator.header.size // self._nchannels // self._sampwidth
+
     def getframerate(self):
         return self._framerate
 
@@ -198,7 +206,7 @@ class JWaveSource(object):
         '''
         return self.locators
 
-    def read_chunk(self, chunk_name):
+    def get_chunk(self, chunk_name):
         '''
         Return the data portion of the chunk named in chunk_name.
         
@@ -223,6 +231,140 @@ class JWaveSource(object):
         self._w.seek(chunk_locator.offset, 0)
         return self._w.read(chunk_locator.header.size)
 
-    def assert_fmt(self, cond, msg):
+    @staticmethod
+    def assert_fmt(cond, msg):
         if not cond:
-            raise self.FormatError(msg)
+            raise FormatError(msg)
+
+class JWaveSink(object):
+    def __init__(self, path, rate, channels, depth):
+        '''
+        Open a WAVE file for writing.
+        
+        rate -- Sample rate, in hertz. (integer)
+        channels -- Number of channels. (integer)
+        depth -- Sample depth, in bytes (1 = 8-bit, 2 = 16-bit, 3 = 24-bit)
+        '''
+        wav = self._w = open(path, 'wb')
+
+        self.total_size = 0
+        self.data_allocated = False
+        self.locators_by_name = {}
+
+        rate = self.rate = int(rate)
+        channels = self.channels = int(channels)
+        depth = self.depth = int(depth)
+        byte_rate = compute_byte_rate(rate, channels, depth * 8)
+        block_align = self.quantum = int(byte_rate // rate)
+
+        #
+        # Write the basic WAVE header.
+        #
+        file_header = WAVEHeader('RIFF', WAVEHeader_size(), 'WAVE')
+        start_pos = self._allocate_chunk(WAVEHeader_size())
+        wav.write(WAVEHeader_to_bytes(file_header))
+        assert(start_pos == 0)
+
+        fmt_chunk = FMTChunk(
+            AudioFormat=1,
+            NumChannels=channels,
+            SampleRate=rate,
+            ByteRate=byte_rate,
+            BlockAlign=block_align,
+            BitsPerSample=depth * 8
+        )
+
+        self.add_chunk('fmt ', FMTChunk_to_bytes(fmt_chunk))
+
+        assert(self.total_size == wav.tell())
+
+        #
+        # Add hint for quick header updates.
+        #
+        self.total_size_offset = start_pos + 4
+
+        self._update_headers()
+
+    def add_chunk(self, name, data):
+        '''
+        Add a chunk to the file.
+        
+        Chunk identifiers (names) must remain unique in the file. No two
+        chunks with the same name will be allowed.
+        
+        Cannot be called once sample data has been written. If so, raises
+        AlreadyWritingData.
+        '''
+        if self.data_allocated:
+            raise AlreadyWritingData()
+
+        exist = self.locators_by_name.get(name)
+        self.assert_fmt(exist is None, 'Duplicate chunk id.')
+
+        hdr = ChunkHeader(name, len(data))
+        hdr_bytes = ChunkHeader_to_bytes(hdr)
+
+        pos = self._allocate_chunk(len(data) + len(hdr_bytes))
+        data_pos = pos + len(hdr_bytes)
+
+        self._w.write(hdr_bytes)
+        self._w.write(data)
+
+        self.locators_by_name[name] = ChunkLocator(data_pos, hdr)
+
+        return pos
+
+    def writeframes(self, frame_data):
+        self.writeframes_raw(frame_data)
+        self._update_headers()
+
+    def writeframes_raw(self, frame_data):
+        if not self.data_allocated:
+            #
+            # We're need to create a data chunk now.
+            #
+            pos = self.add_chunk('data', '')
+            self.data_size_offset = pos + 4
+            self.data_size = 0
+            self.data_allocated = True
+        data_len = len(frame_data)
+        self.assert_fmt(data_len % self.quantum == 0, 'Not aligned.')
+        self._w.write(frame_data)
+        self.data_size += data_len
+        self.total_size += data_len
+
+    def _update_headers(self):
+        '''
+        Update full file size header and data size header (if allocated).
+        
+        INTERNAL.
+        '''
+        f = self._w
+        original_pos = f.tell()
+        f.seek(self.total_size_offset)
+        f.write(Int.pack(self.total_size))
+        if self.data_allocated:
+            f.seek(self.data_size_offset)
+            f.write(Int.pack(self.data_size))
+        f.seek(original_pos)
+
+    def _allocate_chunk(self, length):
+        assert(not self.data_allocated)
+        pos = self.total_size
+        self.total_size += length
+        return pos
+
+    def close(self):
+        self._update_headers()
+        self._w.close()
+        self._w = None
+
+    def __del__(self):
+        if self._w is not None:
+            self.close()
+
+    @staticmethod
+    def assert_fmt(cond, msg):
+        if not cond:
+            raise FormatError(msg)
+

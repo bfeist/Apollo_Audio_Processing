@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import numpy
-import wave
+from ..util import JWaveSink
 
 class WaveSink(object):
     def __init__(self, path, rate, channels, depth):
@@ -13,10 +13,7 @@ class WaveSink(object):
         '''
         self._channels = channels
         self._depth = depth
-        self._w = wave.open(path, 'w')
-        self._w.setnchannels(channels)
-        self._w.setframerate(rate)
-        self._w.setsampwidth(depth)
+        self._w = JWaveSink(path, rate, channels, depth)
     
     def write(self, frames):
         '''Writes samples to file.
@@ -29,13 +26,13 @@ class WaveSink(object):
         data = frames.reshape(self._channels*framecount, order='F')
         if self._depth == 1:
             data = (data * 0x80).clip(-0x80, 0x7f).astype(numpy.int8)
-            data =  ''.join([chr(x) for x in data])
+            data = data.tobytes()
         elif self._depth == 2:
             data = (data * 0x8000).clip(-0x8000, 0x7fff).astype(numpy.int16)
             out = numpy.empty(2*framecount*self._channels, dtype=numpy.uint8)
             out[1::2] = (data >> 8) & 0xff
             out[0::2] = (data     ) & 0xff
-            data = ''.join([chr(x) for x in out])
+            data = out.tobytes()
         else:
             assert(self._depth == 3)
             data = (data * 0x800000).clip(-0x800000, 0x7fffff).astype(numpy.int32)
@@ -43,8 +40,8 @@ class WaveSink(object):
             out[2::3] = (data >> 16) & 0xff
             out[1::3] = (data >>  8) & 0xff
             out[0::3] = (data      ) & 0xff
-            data = ''.join([chr(x) for x in out])
-        self._w.writeframes(data)
+            data = out.tobytes()
+        self._w.writeframes_raw(data)
     
     def close(self):
         self._w.close()
