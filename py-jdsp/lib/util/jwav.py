@@ -342,7 +342,7 @@ class JWaveSink(object):
         f = self._w
         original_pos = f.tell()
         f.seek(self.total_size_offset)
-        f.write(Int.pack(self.total_size))
+        f.write(Int.pack(self.total_size - 8))
         if self.data_allocated:
             f.seek(self.data_size_offset)
             f.write(Int.pack(self.data_size))
