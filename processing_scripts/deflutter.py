@@ -2,10 +2,12 @@ from __future__ import print_function
 import numpy as np
 import sys
 import getopt
-import jdsp.io.WaveSink
 import struct
+import os
+import time
 from jdsp.blocks import ScalableResampler, ToneFollower, HighPassFilter
 from jdsp.util import DelayBuffer
+from jdsp.io import WaveSink, WaveSource
 from irig_b import IRIGBDecoder
 from collections import namedtuple
 from itertools import izip
@@ -44,6 +46,32 @@ TraceHeader = namedtuple('TraceHeader',
 # On-disk representation of trace header.
 #
 TraceHeaderStruct = struct.Struct('4sIQQ')
+
+#
+# Broadcast Audio Extention chunk from Broadcast Wave specificaiton.
+# 2.3 Broadcast Audio Extension Chunk.
+#
+BWF_Audio_Extension = namedtuple('BWF_Audio_Extension',
+    'Description Originator OriginatorReference OriginationDate '
+    'OriginationTime TimeReferenceLow TimeReferenceHigh Version '
+    'UMID LoudnessValue LoudnessRange MaxTruePeakLevel '
+    'MaxMomentaryLoudness MaxShortTermLoudness Reserved '
+    'CodingHistory'
+)
+BWF_Audio_Extension_struct = struct.Struct('<256s32s32s10s8sIIH64sHHHHH180s')
+
+def BWFData_from_bytes(b):
+    assert(len(b) >= BWF_Audio_Extension_struct.size)
+    fields = list(BWF_Audio_Extension_struct.unpack(b))
+    coding_history = b[BWF_Audio_Extension_struct.size:]
+    fields.append(coding_history)
+
+    return BWF_Audio_Extension(*fields)
+
+def BWFData_to_bytes(bwf):
+    mandatory = BWF_Audio_Extension_struct.pack(*(bwf[:15]))
+    pad = '\x00' if len(bwf.CodingHistory) % 2 == 1 else ''
+    return mandatory + bwf.CodingHistory + pad
 
 def CheckTraceFile(f):
     h = f.read(TraceHeaderStruct.size)
@@ -401,6 +429,7 @@ def usage(prog, code, msg=None):
     '\n' \
     '   timecode [-f <max-idle>] [-i] [-s <offset>]\n' \
     '       [-d <depth>] [-o <trace-data-out>] [-t <timecode-audio-out>]\n' \
+    '       [-T <version-tag>]\n' \
     '       <timecode-audio-in> [<audio-file-1-in> <audio-file-1-out>]\n' \
     '       [<audio-file-2-in> <audio-file-2-out>] ...\n' \
     '\n' \
@@ -425,15 +454,27 @@ def usage(prog, code, msg=None):
     '        Deflutter the timecode track and write and write it to\n' \
     '        <timecode-audio-out>.\n' \
     '\n' \
+    '    -T <version-tag>\n' \
+    '        When updating the Broadcast Wave meta-data in the output, use\n' \
+    '        <version-tag> as the tool version number in the Coding\n' \
+    '        History (default "Unknown version").\n' \
+    '\n' \
     '   TRACE MODE\n' \
     '\n' \
     '   In trace processing mode, the tape flutter and wow are loaded from\n' \
     '   from a previously-created trace file and then applied to other\n' \
     '   tracks.\n' \
     '\n' \
-    '   trace <trace-data-file>\n' \
+    '   trace\n' \
+    '       [-T <version-tag>]\n' \
+    '       <trace-data-file>\n' \
     '       <audio-file-1-in> <audio-file-1-out>\n' \
     '       [<audio-file-2-in> <audio-file-2-out>]\n' \
+    '\n' \
+    '    -T <version-tag>\n' \
+    '        When updating the Broadcast Wave meta-data in the output, use\n' \
+    '        <version-tag> as the tool version number in the Coding\n' \
+    '        History (default "Unknown version").\n' \
     '\n' \
     ''.format(prog=prog)
     print(s, file=sys.stderr)
@@ -445,7 +486,7 @@ def samples_to_time(rate, n):
     m = int((seconds // 60) % 60)
     s = seconds % 60
     return '{:03d}:{:02d}:{:06.3f}'.format(h, m, s)
-     
+
 def progress_report(total, inrate, outrate, cmd, arg, written):
     if cmd == 'rspd':
         start_sample_number = arg.start_sample
@@ -492,6 +533,58 @@ def progress_report(total, inrate, outrate, cmd, arg, written):
 
     return samples_read
 
+def UpdateBWF(source, source_name, dest, dest_name, tag):
+    '''
+    Preserve and update (or create) Broadcast Wave format information.
+    
+    Copies over the Broadcast WAVE meta-data from source, to dest and updates
+    the processing history to reflect this defluttering session.
+    
+    If BWF data does not exist in source, a new history will be created in
+    dest.
+    '''
+    source_bwf_bytes = source._w.get_chunk('bext')
+
+    now = time.time()
+    date_ref = time.strftime('%F', time.gmtime(now))
+    time_ref = time.strftime('%T', time.gmtime(now))
+
+    if source_bwf_bytes is not None:
+        bwf = BWFData_from_bytes(source_bwf_bytes)
+    else:
+        rand_code = os.urandom(12).encode('hex')
+        bwf = BWF_Audio_Extension(
+            Description='Defluttered audio',
+            Originator='ApolloAudioProject',
+            OriginatorReference='USAaP' + rand_code,
+            OriginationDate=date_ref,
+            OriginationTime=time_ref,
+            TimeReferenceLow=0,
+            TimeReferenceHigh=0,
+            Version=2,
+            UMID='',
+            LoudnessValue=0,
+            LoudnessRange=0,
+            MaxTruePeakLevel=0,
+            MaxMomentaryLoudness=0,
+            MaxShortTermLoudness=0,
+            Reserved='',
+            CodingHistory=''
+        )
+
+    this_entry = \
+        'Defluttered from timecode on '+date_ref+' '+time_ref+' UTC using ' \
+        'deflutter.py ' + tag + '\r\n'
+
+    coding_history = bwf.CodingHistory
+
+    new_bwf = bwf._replace(
+        CodingHistory=coding_history+this_entry.encode('ascii')
+    )
+
+    bwf_bytes = BWFData_to_bytes(new_bwf)
+    dest._w.add_chunk('bext', bwf_bytes)
+
 def main(prog, args):
     prog, args = sys.argv[0], sys.argv[1:]
 
@@ -511,14 +604,15 @@ def do_timecode_input(prog, args):
     block_size = 50000
     start_sample = 0
     deflutter_depth = 1
-    outrate = 32000
+    outrate = 16000
     skip = 0
     check_overflow = None
     prescale = 1
     timecode_out_path = None
     trace_out = None
+    tag = 'Unknown version'
 
-    opts, args = getopt.getopt(args, 'f:is:d:t:o:h')
+    opts, args = getopt.getopt(args, 'f:is:d:t:o:hT:')
     for opt, val in opts:
         if opt == '-i':
             prescale = -1
@@ -532,6 +626,8 @@ def do_timecode_input(prog, args):
             timecode_out_path = val
         elif opt == '-o':
             trace_out = open(val, 'wb')
+        elif opt == '-T':
+            tag = val
         elif opt == '-h':
             usage(prog, 0)
 
@@ -539,7 +635,7 @@ def do_timecode_input(prog, args):
         usage(prog, 1, 'Need timecode input audio file.')
 
     tc_source_path, args = args[0], args[1:]
-    tc_source = jdsp.io.WaveSource(tc_source_path)
+    tc_source = WaveSource(tc_source_path)
 
     #
     # Compute the starting sample number.
@@ -568,8 +664,9 @@ def do_timecode_input(prog, args):
     # If the timecode itself should be respeeded, add it as a track.
     #
     if timecode_out_path is not None:
-        s = jdsp.io.WaveSource(tc_source_path)
-        o = jdsp.io.WaveSink(timecode_out_path, outrate, 1, 2)
+        s = WaveSource(tc_source_path)
+        o = WaveSink(timecode_out_path, outrate, 1, 2)
+        UpdateBWF(s, tc_source_path, o, timecode_out_path, tag)
         rs = ScalableResampler(s.rate(), outrate, speed_quantum=320,
             quality=50)
         tracks.append(Track(source=s, resampler=rs, sink=o))
@@ -578,8 +675,9 @@ def do_timecode_input(prog, args):
     # Add in the tracks to be processed.
     #
     for i in range(0, len(args), 2):
-        s = jdsp.io.WaveSource(args[i])
-        o = jdsp.io.WaveSink(args[i+1], outrate, 1, 2)
+        s = WaveSource(args[i])
+        o = WaveSink(args[i+1], outrate, 1, 2)
+        UpdateBWF(s, args[i], o, args[i+1], tag)
         rs = ScalableResampler(s.rate(), outrate, speed_quantum=320,
             quality=50)
         tracks.append(Track(source=s, resampler=rs, sink=o))
@@ -645,11 +743,14 @@ def do_trace_input(prog, args):
     Trace input mode. Take an existing trace and apply it to other tracks.
     '''
     outrate = 16000
+    tag = 'Unknown verion'
 
-    opts, args = getopt.getopt(args, 'h')
+    opts, args = getopt.getopt(args, 'hT:')
     for opt, val in opts:
         if opt == '-h':
             usage(prog, 0)
+        elif opt == '-T':
+            tag = val
 
     if len(args) < 1:
         usage(prog, 1, 'Need trace input file.')
@@ -671,8 +772,9 @@ def do_trace_input(prog, args):
     tracks = []
 
     for i in range(0, len(args), 2):
-        s = jdsp.io.WaveSource(args[i])
-        o = jdsp.io.WaveSink(args[i+1], outrate, 1, 2)
+        s = WaveSource(args[i])
+        o = WaveSink(args[i+1], outrate, 1, 2)
+        UpdateBWF(s, args[i], o, args[i+1], tag)
         rs = ScalableResampler(s.rate(), outrate, speed_quantum=320,
             quality=50)
         tracks.append(Track(source=s, resampler=rs, sink=o))
