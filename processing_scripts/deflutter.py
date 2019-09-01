@@ -546,8 +546,8 @@ def UpdateBWF(source, source_name, dest, dest_name, tag):
     source_bwf_bytes = source._w.get_chunk('bext')
 
     now = time.time()
-    date_ref = time.strftime('%F', time.gmtime(now))
-    time_ref = time.strftime('%T', time.gmtime(now))
+    date_ref = time.strftime('%Y-%m-%d', time.gmtime(now))
+    time_ref = time.strftime('%H:%M:%S', time.gmtime(now))
 
     if source_bwf_bytes is not None:
         bwf = BWFData_from_bytes(source_bwf_bytes)
