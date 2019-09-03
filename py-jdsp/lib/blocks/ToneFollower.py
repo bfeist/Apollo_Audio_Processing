@@ -135,7 +135,7 @@ class ToneFollower(object):
         # Convert radians-per-sample error signal into one relative to the
         # sample rate.
         #
-        rate = 1.0 - dtheta * self.r_angle
+        rate = 1.0 + dtheta * self.r_angle
 
         #
         # Save the last output sample for future difference calculations.
