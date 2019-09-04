@@ -643,7 +643,14 @@ def samples_to_time(rate, n):
     return '{:03d}:{:02d}:{:06.3f}'.format(h, m, s)
 
 def progress_report(total, inrate, outrate, cmd, arg, written):
-    if cmd == 'rspd':
+    if cmd is None:
+        #
+        # We're done.
+        #
+        print('')
+        print('Done.')
+        return
+    elif cmd == 'rspd':
         start_sample_number = arg.start_sample
         samples_read = len(arg.timing)
         #
@@ -655,7 +662,7 @@ def progress_report(total, inrate, outrate, cmd, arg, written):
         speed_min = np.min(rate)
         speed_avg = np.average(rate)
         timecode = arg.timecode
-    else:
+    elif:
         start_sample_number = 0
         samples_read = arg
         speed_max = 1.0
@@ -953,6 +960,8 @@ def do_timecode_input(prog, args):
         track.sink.write(out.reshape((1, len(out))))
         track.sink.close()
 
+    progress(None, None, None)
+
 def do_trace_input(prog, args):
     '''
     Trace input mode. Take an existing trace and apply it to other tracks.
@@ -1040,8 +1049,11 @@ def do_trace_input(prog, args):
     #
     for track in tracks:
         out = track.resampler.done()
+        written = len(out)
         track.sink.write(out.reshape((1, len(out))))
         track.sink.close()
+
+    progress(None, None, written)
 
 def respeed_tracks(total_samples, cmd, arg, tracks):
     if cmd == 'skip':
