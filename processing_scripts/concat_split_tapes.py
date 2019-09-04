@@ -15,8 +15,8 @@ def get_arg(index):
 
 tape = get_arg(1)
 
-inputPath = 'O:/Apollo 13 30-Track/44.1/original/'
-# inputPath = 'E:/Apollo_13_Data_Delivery/44.1/original/'
+# inputPath = 'O:/Apollo 13 30-Track/44.1/original/'
+inputPath = 'E:/Apollo_13_Data_Delivery/44.1/original/'
 outputPath = 'D:/concatenated/'
 # outputPath = 'F:/concat/'
 
