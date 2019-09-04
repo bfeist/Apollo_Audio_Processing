@@ -502,17 +502,32 @@ def DumpRespeedBlock(f, rs):
     f.write(RespeedBlockHeaderStruct.pack(rs.start_sample, len(rs.timing)))
     rs.timing.astype(dtype=np.float32).tofile(f)
 
-def usage(prog, code, msg=None):
+def usage(prog, code, verb=None, msg=None):
     if msg is not None:
         print(msg, file=sys.stderr)
-    s = \
-    'Deflutter and dewow audio recordings.\n' \
+
+    if verb is None:
+        do_timecode = True
+        do_trace = True
+    elif verb == 'timecode':
+        do_timecode = True
+        do_trace = False
+    elif verb == 'trace':
+        do_timecode = False
+        do_trace = True
+    else:
+        raise Exception('Programmer error in help function!')
+
+    common = \
+    'Deflutter and dewow audio recordings.\n'
     'usage: {prog} timecode [options] [<audio-files>]\n' \
     '   or: {prog} trace [options] <audio-files>\n' \
     '\n' \
     '   timecode -- Process IRIG-B timecode to generate deflutter trace.\n' \
     '   trace    -- Use existing deflutter trace to process other audio.\n' \
-    '\n' \
+    '\n'.format(prog=prog)
+
+    timecode = \
     '   TIMECODE MODE\n' \
     '\n' \
     '   In timecode processing mode, the tape flutter and wow are extracted\n' \
@@ -571,7 +586,9 @@ def usage(prog, code, msg=None):
     '        the value of Q (the respeed quantum), the more resolution the\n' \
     '        will be available to the resampler in placing the respeeded\n' \
     '        sample in the correct place during playback. (Default: 320)\n' \
-    '\n' \
+    '\n'
+
+    trace = \
     '   TRACE MODE\n' \
     '\n' \
     '   In trace processing mode, the tape flutter and wow are loaded from\n' \
@@ -606,9 +623,16 @@ def usage(prog, code, msg=None):
     '        When updating the Broadcast Wave meta-data in the output, use\n' \
     '        <version-tag> as the tool version number in the Coding\n' \
     '        History (default "Unknown version").\n' \
-    '\n' \
-    ''.format(prog=prog)
-    print(s, file=sys.stderr)
+    '\n'
+
+    print(common, file=sys.stderr)
+
+    if do_timecode:
+        print(timecode, file=sys.stderr)
+
+    if do_trace:
+        print(trace, file=sys.stderr)
+
     sys.exit(code)
 
 def samples_to_time(rate, n):
@@ -755,7 +779,7 @@ def main(prog, args):
     prog, args = sys.argv[0], sys.argv[1:]
 
     if len(args) < 1:
-        usage(prog, 1, 'Need mode.')
+        usage(prog, 1, None, 'Need mode.')
 
     verb, args = args[0].lower(), args[1:]
 
@@ -764,7 +788,7 @@ def main(prog, args):
     elif verb == 'trace':
         do_trace_input(prog, args)
     else:
-        usage(prog, 1, 'Unknown verb {}'.format(verb))
+        usage(prog, 1, None, 'Unknown verb {}'.format(verb))
 
 def do_timecode_input(prog, args):
     block_size = 50000
@@ -803,10 +827,10 @@ def do_timecode_input(prog, args):
         elif opt == '-Q':
             speed_quantum = int(val)
         elif opt == '-h':
-            usage(prog, 0)
+            usage(prog, 0, 'timecode')
 
     if len(args) < 1:
-        usage(prog, 1, 'Need timecode input audio file.')
+        usage(prog, 1, 'timecode', 'Need timecode input audio file.')
 
     tc_source_path, args = args[0], args[1:]
     tc_source = WaveSource(tc_source_path)
@@ -938,7 +962,7 @@ def do_trace_input(prog, args):
     opts, args = getopt.getopt(args, 'hT:q:Q:r:')
     for opt, val in opts:
         if opt == '-h':
-            usage(prog, 0)
+            usage(prog, 0, 'trace')
         elif opt == '-T':
             tag = val
         elif opt == '-r':
@@ -950,7 +974,7 @@ def do_trace_input(prog, args):
 
 
     if len(args) < 1:
-        usage(prog, 1, 'Need trace input file.')
+        usage(prog, 1, None, 'Need trace input file.')
 
     #
     # Open the trace file, check it, and prepare to read directions
@@ -964,7 +988,7 @@ def do_trace_input(prog, args):
         raise Exception('Not a v2 trace file')
 
     if len(args) <  2:
-        usage(prog, 'Need at least one audio file to deflutter!')
+        usage(prog, 'timecode', 'Need at least one audio file to deflutter!')
 
     #
     # Set up all the input audio tracks.
