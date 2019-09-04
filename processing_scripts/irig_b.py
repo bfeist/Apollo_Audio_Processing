@@ -5,7 +5,9 @@ from jdsp.blocks import ZeroCrossDetector, HighPassFilter
 from numpy import rint, zeros, empty
 import collections
 import functools
+import datetime
 from apollo import TimeBases, GMTFromIRIG, MissionTimeFromIRIG
+from apollo import MissionTimeBasis
 from apollo import met_str, gmt_str
 # Python 2 & 3 compatible way to get izip()
 try:
@@ -410,17 +412,27 @@ def prepend(array, value, dtype):
     n[1:] = array
     return n
 
-def frame_filter(cb, b, rate, f):
-    if f.ok_sbs_tm and f.years == 0:
-        cb(b, rate, f)
+def frame_filter_sbs_match(b, rate, f):
+    return f.ok_sbs_tm
 
-def frame_dump_audacity(b, rate, f):
+def frame_filter_year_zero(b, rate, f):
+    return f.years == 0
+
+def frame_dump_audacity_with_met(b, rate, f):
     mission = met_str(MissionTimeFromIRIG(b, f))
     frame = gmt_str(GMTFromIRIG(b, f))
     t = float(f.absolute_sample.i) / rate
     t += f.absolute_sample.f / rate
     tm = '%f' % t
-    print(tm + '\t' + tm + '\t' + mission, frame)
+    print(tm, tm, mission, sep='\t', end=' ')
+    print(frame)
+
+def frame_dump_audacity(b, rate, f):
+    frame = gmt_str(GMTFromIRIG(b, f))
+    t = float(f.absolute_sample.i) / rate
+    t += f.absolute_sample.f / rate
+    tm = '%f' % t
+    print(tm, tm, frame, sep='\t')
 
 def frame_dump_plain(b, rate, f):
     mission = met_str(MissionTimeFromIRIG(b, f))
@@ -449,19 +461,31 @@ def main(args):
     import getopt
 
     def usage(prog):
-      print('usage:', prog, '[-i] [-a|-p|-l|-r] [-b <base>] <wav-file>',
-          file=sys.stderr)
-      print('-i  Invert audio before processing.', file=sys.stderr)
-      print('-b  Translate time for specific mission basis.', file=sys.stderr)
-      print('    (Available bases: {}).'.format(' '.join(time_bases.keys())),
-            file=sys.stderr)
-      print('  Options for output', file=sys.stderr)
-      print('-v  Write all frames to output, even bad ones.', file=sys.stderr)
-      print('-l  Write Audacity-compatible labels on output.', file=sys.stderr)
-      print('-a  Write Adobe Audition markers on output.', file=sys.stderr)
-      print('-p  Write plain labels on output.', file=sys.stderr)
-      print('-r  Write raw labels on output.', file=sys.stderr)
-
+      msg = 'usage: {prog} [-i] [-F] [-a|-p|-l|-r] [-v|-f <filter>]' \
+          '[-b <base>|-y <year>] ' \
+          '<wav-file>\n' \
+          '  Options for input\n' \
+          '-i  Invert audio before processing.\n' \
+          '-F  Apply 400 Hz high-pass filter to audio before processing.\n' \
+          '    (Useful for some signals.)\n' \
+          '  Options for output\n' \
+          '-b  Translate time for specific mission basis.\n' \
+          '    (Available bases: {bases}).\n' \
+          '-y  Translate time for specified year.\n' \
+          '-l  Write Audacity-compatible labels on output.\n' \
+          '-a  Write Adobe Audition markers on output.\n' \
+          '-p  Write plain labels on output.\n' \
+          '-r  Write raw labels on output.\n' \
+          '  Frame filtering\n' \
+          '-v  Write all frames to output, no filtering.\n' \
+          '-f  Filter frames according to pattern in <filter>\n' \
+          '    Filter is any combination of the characters:\n' \
+          '      y - Filter out frames with non-zero year fields\n' \
+          '      b - Filter out frames where SBS != H:M:S fields.\n' \
+          '          (SBS = Straight Binary Seconds)\n' \
+          '    (Default: \'by\')\n' \
+      .format(prog=prog, bases=' '.join(time_bases.keys()))
+      print(msg, file=sys.stderr)
       sys.exit(1)
 
     def error(msg, code):
@@ -474,12 +498,15 @@ def main(args):
     prog = args[0]
     args = args[1:]
     invert = False
-    all_frames = False
+    hp_filter = False
+    frame_filter_expr = None
     styles = set()
 
+    apollo_basis_requested = False
+    year_basis_requested = False
     basis_name = 'a11'
 
-    opts, args = getopt.getopt(args, 'arpilhb:v')
+    opts, args = getopt.getopt(args, 'aFrpilhb:f:y:')
     for opt, val in opts:
         if opt == '-i':
             invert = True
@@ -492,9 +519,15 @@ def main(args):
         elif opt == '-p':
             styles.add('plain')
         elif opt == '-b':
+            apollo_basis_requested = True
             basis_name = val.lower()
-        elif opt == '-v':
-            all_frames = True
+        elif opt == '-f':
+            frame_filter_expr = val
+        elif opt == '-y':
+            year_basis_requested = True
+            year_base = int(val)
+        elif opt == '-F':
+            hp_filter = True
         elif opt == '-h':
             usage(prog)
 
@@ -502,15 +535,24 @@ def main(args):
         usage(prog)
 
     if len(styles) > 1:
-        error('More than one label style specified. Choose only one.')
+        error('More than one label style specified. Choose only one.', 2)
     elif len(styles) == 0:
         style = 'audacity'
     else:
         style = styles.pop()
 
-    mission_basis = TimeBases.get(basis_name, None)
-    if mission_basis is None:
-        error('Unknown mission name.', 2)
+    if apollo_basis_requested and year_basis_requested:
+        error('Only one of -b or -y may be specified, not both.', 2)
+
+    if year_basis_requested:
+        mission_basis = MissionTimeBasis(
+            all_balls=0,
+            year=year_base
+        )
+    else:
+        mission_basis = TimeBases.get(basis_name, None)
+        if mission_basis is None:
+            error('Unknown mission name.', 2)
 
     in_file = args[0]
 
@@ -526,13 +568,19 @@ def main(args):
 
     block_size = int(rate)
 
-    five_ms_samples = int(rate * 0.005)
-    if (five_ms_samples % 2) == 0:
-        five_ms_samples += 1
-    hp = HighPassFilter(rate, five_ms_samples, 400.0)
+    if hp_filter:
+        five_ms_samples = int(rate * 0.005)
+        if (five_ms_samples % 2) == 0:
+            five_ms_samples += 1
+        hp = HighPassFilter(rate, five_ms_samples, 400.0)
 
     if style == 'audacity':
-        dump = frame_dump_audacity
+        if year_basis_requested:
+            # Year-wise basis requested, no mission in effect.
+            dump = frame_dump_audacity
+        else:
+            # We're likely processing a mission, add mission elapsed time.
+            dump = frame_dump_audacity_with_met
     elif style == 'adobe':
         start_dump_adobe(mission_basis, rate)
         dump = frame_dump_adobe
@@ -543,14 +591,37 @@ def main(args):
     else:
         error('Internal error while selecting dump format.')
 
-    if all_frames:
-        callback = functools.partial(dump, mission_basis, rate)
+    frame_filter_func = None
+    if frame_filter_expr is not None:
+        for c in frame_filter_expr:
+            if c == 'y':
+                next_filter = frame_filter_year_zero
+            elif c == 'b':
+                next_filter = frame_filter_sbs_match
+            else:
+                error('Unknown frame filter type \'{}\'.'.format(c))
+
+            if frame_filter_func is None:
+                frame_filter_func = next_filter
+            else:
+                frame_filter_func = \
+                     lambda  a, b, c: next_filter(a, b, c) and \
+                                      frame_filter_func(a, b, c)
+
+    if frame_filter_func is not None:
+        def callback(frame):
+            if filter_frame_func(mission_basis, rate, frame):
+                dump(mission_basis, rate, frame)
     else:
-        callback = functools.partial(frame_filter, dump, mission_basis, rate)
+        callback = functools.partial(dump, mission_basis, rate)
 
     decoder = IRIGBDecoder(rate, callback)
 
-    decoder.set_sample_number(hp.delay() * -1)
+    if hp_filter:
+        decoder.set_sample_number(hp.delay() * -1)
+        decoder_process = lambda samples: decoder.process(hp.process(samples))
+    else:
+        decoder_process = decoder.process
 
     while True:
         frames = src.read(block_size)
@@ -560,8 +631,7 @@ def main(args):
         samples = frames[0]
         if invert:
             samples = samples * -1.0
-        filtered = hp.process(samples)
-        decoder.process(filtered)
+        decoder_process(samples)
 
 if __name__ == '__main__':
     import sys

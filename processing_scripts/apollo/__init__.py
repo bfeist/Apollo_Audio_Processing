@@ -17,7 +17,7 @@ for example), so another scale known as GET (Ground Elapsed Time) is used
 Each mission has its officially planned start time
 '''
 MissionTimeBasis = collections.namedtuple('MissionTimeBasis',
-    'all_balls year_ordinal')
+    'all_balls year')
 
 '''
 GMT timestamp tuple. Returned from GMTFromIRIG().
@@ -44,7 +44,8 @@ def GMTFromIRIG(basis, f):
     month -- 1-based (January == 1)
     day -- 1-based
     '''
-    date = datetime.fromordinal(basis.year_ordinal + f.days - 1)
+    year_ordinal = datetime(basis.year + f.years, 1, 1).toordinal()
+    date = datetime.fromordinal(year_ordinal + f.days - 1)
     return Timestamp(
         date.year,
         date.month,
@@ -108,7 +109,7 @@ TimeBases = {
     #
     'a11' : MissionTimeBasis(
         all_balls=date_to_seconds(197, 13, 32, 0),
-        year_ordinal=datetime(1969, 1, 1).toordinal()
+        year=1969
     ),
 
     #
@@ -119,6 +120,6 @@ TimeBases = {
     #
     'a13' : MissionTimeBasis(
         all_balls=date_to_seconds(101, 19, 13, 0),
-        year_ordinal=datetime(1970, 1, 1).toordinal()
+        year=1970
     )
 }
