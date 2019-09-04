@@ -8,7 +8,7 @@ import time
 from jdsp.blocks import ScalableResampler, ToneFollower, HighPassFilter
 from jdsp.util import DelayBuffer
 from jdsp.io import WaveSink, WaveSource
-from irig_b import IRIGBDecoder
+from irig_b import IRIGBDecoder, AbsoluteSample
 from collections import namedtuple
 from itertools import izip
 from functools import partial
@@ -39,13 +39,24 @@ RespeedBlockHeaderStruct = struct.Struct('QI')
 #
 # Trace file header.
 #
-TraceHeader = namedtuple('TraceHeader',
+TraceHeaderV1 = namedtuple('TraceHeaderV1',
     'ident version endian_check start_sample')
+TraceHeaderV2Addition = namedtuple('TraceHeaderV2Addition',
+    'input_sample_rate comment_size')
+
+#
+# Combined abstract representation.
+#
+TraceHeader = namedtuple('TraceHeader',
+    'ident version endian_check start_sample input_sample_rate comment')
 
 #
 # On-disk representation of trace header.
 #
-TraceHeaderStruct = struct.Struct('4sIQQ')
+TraceHeaderV1Struct = struct.Struct('4sIQQ')
+TraceHeaderV2AdditionStruct = struct.Struct('QQ')
+# For ease of writing V2 structures, only:
+TraceHeaderV2Struct = struct.Struct('4sIQQQQ')
 
 #
 # Broadcast Audio Extention chunk from Broadcast Wave specificaiton.
@@ -73,25 +84,49 @@ def BWFData_to_bytes(bwf):
     pad = '\x00' if len(bwf.CodingHistory) % 2 == 1 else ''
     return mandatory + bwf.CodingHistory + pad
 
-def CheckTraceFile(f):
-    h = f.read(TraceHeaderStruct.size)
+def ReadTraceHeaderFromFile(f):
+    h = f.read(TraceHeaderV1Struct.size)
 
-    if len(h) != TraceHeaderStruct.size:
+    if len(h) != TraceHeaderV1Struct.size:
         raise Exception('Trace file header too short.')
 
-    header = TraceHeader(*TraceHeaderStruct.unpack(h))
+    headerv1 = TraceHeaderV1(*TraceHeaderV1Struct.unpack(h))
 
-    if header.ident != 'dflt':
+    if headerv1.ident != 'dflt':
         raise Exception('Trace file has bad magic number.')
-    if header.version != 1:
+    if headerv1.version > 2:
         raise Exception('Incompatible trace header version.')
-    if header.endian_check != 0x0001020304050607:
+    if headerv1.endian_check != 0x0001020304050607:
         raise Exception('Trace file endianess not native!')
+
+    if headerv1.version == 2:
+        a = f.read(TraceHeaderV2AdditionStruct.size)
+        if len(a) != TraceHeaderV2AdditionStruct.size:
+            raise Exception('Trace extension header too short.')
+        addition = TraceHeaderV2Addition(*TraceHeaderV2AdditionStruct.unpack(a))
+        cmt = f.read(addition.comment_size)
+        if len(cmt) != addition.comment_size:
+            raise Exception('Trace extension comment too short.')
+        comment = cmt.decode('utf-8')
+        input_sample_rate = addition.input_sample_rate
+    else:
+        comment = None
+        input_sample_rate = None
+
+    header = TraceHeader(
+        ident=headerv1.ident,
+        version=headerv1.version,
+        endian_check=headerv1.endian_check,
+        start_sample=headerv1.start_sample,
+        input_sample_rate=input_sample_rate,
+        comment=comment
+    )
 
     return header
 
 def GetRespeedBlock(f):
-    '''Read the next respeed block from a trace file.
+    '''
+    Read the next respeed block from a trace file.
     
     Returns None if EOF.
     '''
@@ -104,12 +139,10 @@ def GetRespeedBlock(f):
     timing = np.fromfile(f, dtype=np.float32, count=timing_len)
     return RespeedBlock(start_sample, timing, None)
 
-def RespeedBlocksFromFile(f):
+def RespeedBlocksFromFile(header, f):
     '''
     Iterator. Yields respeed indications from a trace file.
     '''
-    header = CheckTraceFile(f)
-
     if header.start_sample != 0:
         yield 'skip', header.start_sample
 
@@ -133,7 +166,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
     def frame_received(f):
         queued_commands.append(f)
 
-    tc_follower = ToneFollower(tc_source.rate(), 1000, 200, 28)
+    tc_follower = ToneFollower(tc_source.rate(), 1000, 300, 28)
     tc_decoder = IRIGBDecoder(tc_source.rate(), frame_received)
 
     #
@@ -234,7 +267,21 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             #
             # Examine head frame information from queue.
             #
-            frame = queued_commands.pop(0)
+            frame = queued_commands[0]
+
+            #
+            # Only consider strictly verified frames.
+            #
+            if frame is not None and not frame.ok_sbs_tm:
+                #
+                # The straight binary seconds portion of this frame doesn't
+                # match the other parts of the frame. A really good frame
+                # would have a good match. Since the short term drift of this
+                # process is heavily affected by bad frames, don't use this
+                # one. A good one is bound to come up soon.
+                #
+                queued_commands.pop(0)
+                continue
 
             #
             # Do we have a previous frame?
@@ -244,7 +291,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                 # Don't have last frame yet, this is the first detected frame.
                 # Start from the skip point (if any).
                 #
-                start_sample = skip
+                start_sample = AbsoluteSample(skip, 0)
             else:
                 #
                 # We have a previous frame. Start from there.
@@ -254,7 +301,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             if frame is not None:
                 #
                 # This is the start of a detected IRIG-B frame.
-                # It's start sample is where we should stop this resample
+                # Its start sample is where we should stop this resample
                 # chunk.
                 #
                 end_sample = frame.absolute_sample
@@ -265,20 +312,23 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                 # just copy the chunk as is.
                 #
                 rescale = last_frame is not None
+                time_sync = rescale
             else:
                 #
-                # This is a stop processing command. Don't rescale nor
-                # deflutter any remaining audio.
+                # This is a stop processing command. Deflutter the remaining
+                # audio just using the PLL information. Don't try to time
+                # sync.
                 #
-                end_sample = total_samples
-                rescale = False
+                end_sample = AbsoluteSample(total_samples, 0)
+                rescale = True
+                time_sync = False
 
             #
             # Consult PLL to see if it has the required speed information
             # about the discovered frame.
             #
-            samples = end_sample - start_sample
-            have_speed = tc_phase_buf.have(start_sample - skip, samples) == 1
+            samples = end_sample.i - start_sample.i
+            have_speed = tc_phase_buf.have(start_sample.i - skip, samples) == 1
             if not have_speed:
                 #
                 # We don't yet have the phasing information for this region.
@@ -290,70 +340,109 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             # Determine the rescaling to attempt.
             #
             if not rescale:
+                #
+                # No rescaling required.
+                #
                 scale = np.linspace(0, samples, samples+1)[1:]
             else:
                 #
-                # We've got frame data. We now know about a definitive region
-                # which should be timed to exactly some integer seconds long.
+                # Fetch the measured speed in this region of samples
+                # (according to the IRIG-B carrier signal).
                 #
-                # First, determine the number of desired samples between the
-                # timecode frames. This is simply the sample rate times the
-                # timecode differences, in seconds.
+                # Measured speed will be a per-sample ratio a/b, where a
+                # is the measured speed and b is the desired speed.
                 #
-                seconds = float(samples) / tc_source.rate()
-                nominal_seconds = np.rint(seconds)
-                desired_samples = nominal_seconds * tc_source.rate()
+                carrier_speed = tc_phase_buf.get(start_sample.i-skip, samples)
 
-                #
-                # Fetch the measured flutter in this region of samples.
-                #
-                playback_speed = tc_phase_buf.get(start_sample - skip, samples)
-                resample_speed = np.reciprocal(playback_speed)
+                if time_sync:
+                    #
+                    # We've got frame data. We now know about a definitive
+                    # region which should be timed to exactly some integer
+                    # seconds long.
+                    #
+                    # First, determine the number of desired samples between
+                    # the timecode frames. This is simply the sample rate times
+                    # the timecode differences, in seconds.
+                    #
+                    seconds = float(samples) / tc_source.rate()
+                    nominal_seconds = np.rint(seconds)
+                    desired_samples = nominal_seconds * tc_source.rate()
+
+                    #
+                    # Incorporate the fractional zero-crossing times of the
+                    # two frames involved here to derive the precise sample
+                    # distance between the their start times.
+                    #
+                    zc_distance_samples = samples + \
+                        end_sample.f - start_sample.f
+                    
+                    #
+                    # Compute the detected playback speed (as a ratio relative
+                    # the ideal speed) as measured by the distance between the
+                    # timecode sync points.
+                    #
+                    tc_speed = float(desired_samples) / zc_distance_samples 
+
+                    #
+                    # Put some checks in place.
+                    #
+                    if tc_speed < 0.8 or tc_speed > 1.25:
+                        #
+                        # The new measured playback rate exceeds the bounds
+                        # 80%-%125 (4/5 - 5/4), which is likely a sign that,
+                        # perhaps, this IRIG-B code point is a fluke.
+                        #
+                        # Yield a warning upstream, and then just skip trying
+                        # to integrate this frame marker. Hopefully the next
+                        # one we receive should be ok.
+                        #
+                        yield 'warn', WarningBlock(start_sample.i, overall_rate,
+                            frame)
+
+                        #
+                        # Throw away this marker and continue.
+                        #
+                        queued_commands.pop(0)
+                        continue
+
+                    #
+                    # Subtract the overall average out of the speed vector.
+                    # This will ensure that the sum of all the flutter
+                    # information between these two timecode points will be
+                    # zero, allowing us to incorporate the fact that we know
+                    # the timecode into the result.
+                    #
+                    flutter_speed = carrier_speed - np.average(carrier_speed)
+
+                    #
+                    # Adjust the flutter depth now, if requested.
+                    #
+                    flutter_speed *= deflutter_depth
+
+                    #
+                    # Insert the detected timecode rate required to
+                    # ensure that the selected samples will occupy some exact
+                    # integer number of seconds of playback.
+                    #
+                    correction_speed = flutter_speed + tc_speed
+
+                    #
+                    # Convert the desired playback rate into a time function.
+                    #
+                    scale = np.cumsum(correction_speed)
+                else:
+                    scale = np.cumsum(carrier_speed)
 
                 #
                 # Mark the phase samples as safe to destroy.
                 #
-                tc_phase_buf.consume(start_sample - skip, samples)
-
-                #
-                # Subtract the overall average out of the speed vector. This
-                # will ensure that the sum of all the flutter information
-                # between these two timecode points will be zero, allowing us
-                # to incorporate the fact that we know the timecode into the
-                # result.
-                #
-                resample_speed = resample_speed - np.average(resample_speed)
-
-                #
-                # Convert the flutter rate into a time function.
-                #
-                deflutter = integrate(resample_speed) * deflutter_depth
-
-                #
-                # Now set up a linear scale that stretches these captured
-                # samples into the time region between the timecode points.
-                #
-                scale = np.linspace(0, desired_samples, samples+1)[1:]
-
-                #
-                # Put some checks in place. Print a warning if the new playback
-                # rate exceeds the bounds 80%-%125 (4/5 - 5/4).
-                #
-                overall_rate = float(desired_samples) / samples
-                if overall_rate < 0.8 or overall_rate > 1.25:
-                    yield 'warn', WarningBlock(start_sample, overall_rate,
-                        frame)
-
-                #
-                # Incorporate the flutter measurements into the scale.
-                #
-                scale -= deflutter
+                tc_phase_buf.consume(start_sample.i - skip, samples)
 
             #
             # Construct and yield the timing block.
             #
             block = RespeedBlock(
-                start_sample=start_sample,
+                start_sample=start_sample.i,
                 timing=scale,
                 timecode=frame
             )
@@ -362,6 +451,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             #
             # Try next frame.
             #
+            queued_commands.pop(0)
             last_frame = frame
 
         #
@@ -371,7 +461,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             if last_frame is None:
                 target = skip + check_overflow
             else:
-                target = last_frame.absolute_sample + check_overflow
+                target = last_frame.absolute_sample.i + check_overflow
 
             if total_samples > target:
                 seconds = check_overflow // tc_source.rate()
@@ -386,28 +476,31 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                 #
                 queued_frames.append(None)
 
-def InitializeTraceFile(f, skip):
+def InitializeTraceFile(f, skip, input_sample_rate, comment):
     header = TraceHeader(
         ident='dflt',
-        version=1,
+        version=2,
         endian_check=0x0001020304050607,
-        start_sample=skip
+        start_sample=skip,
+        input_sample_rate=input_sample_rate,
+        comment=comment.encode('utf-8')
     )
 
-    f.write(TraceHeaderStruct.pack(*header))
+    f.write(TraceHeaderV2Struct.pack(
+        header.ident,
+        header.version,
+        header.endian_check,
+        header.start_sample,
+        header.input_sample_rate,
+        len(header.comment)
+    ))
+
+    f.write(header.comment)
 
 def DumpRespeedBlock(f, rs):
     '''Dump a respeed block to a file.'''
     f.write(RespeedBlockHeaderStruct.pack(rs.start_sample, len(rs.timing)))
     rs.timing.astype(dtype=np.float32).tofile(f)
-
-def integrate(r):
-    out = np.empty_like(r)
-    sum = 0.0
-    for i, v in enumerate(r):
-        sum += v
-        out[i] = sum
-    return out
 
 def usage(prog, code, msg=None):
     if msg is not None:
@@ -427,9 +520,9 @@ def usage(prog, code, msg=None):
     '   applied immediately to other audio tracks, or they can be saved\n' \
     '   to a trace file, where they can be loaded and used for a later job.\n' \
     '\n' \
-    '   timecode [-f <max-idle>] [-i] [-s <offset>]\n' \
+    '   timecode [-f <max-idle>] [-i] [-s <offset>] [-r <outrate>]\n' \
     '       [-d <depth>] [-o <trace-data-out>] [-t <timecode-audio-out>]\n' \
-    '       [-T <version-tag>]\n' \
+    '       [-T <version-tag>] [-q <quality>] [-Q <respeed-quantum>]\n' \
     '       <timecode-audio-in> [<audio-file-1-in> <audio-file-1-out>]\n' \
     '       [<audio-file-2-in> <audio-file-2-out>] ...\n' \
     '\n' \
@@ -444,7 +537,7 @@ def usage(prog, code, msg=None):
     '    -d <depth>\n' \
     '        (No longer necessary) De-flutter depth. Scale the respeed\n' \
     '        vector by <depth> before applying it to the audio to be\n' \
-    '        resampled. (floating point)\n' \
+    '        resampled. (floating point) (default: 1.0)\n' \
     '\n' \
     '    -f <max-idle>\n' \
     '        Stop processing if more than <max-idle> seconds elapse\n' \
@@ -459,6 +552,26 @@ def usage(prog, code, msg=None):
     '        <version-tag> as the tool version number in the Coding\n' \
     '        History (default "Unknown version").\n' \
     '\n' \
+    '   The following options are only valid when processing additional audio\n' \
+    '   files with the timecode:\n' \
+    '\n' \
+    '    -r <outrate>\n' \
+    '        Convert each defluttered output file to sample rate <outrate>,\n' \
+    '        hertz. (Default: 16000).\n' \
+    '\n' \
+    '    -q <quality>\n' \
+    '        Use a Sinc window size of <quality> input samples when\n' \
+    '        constructing the deflutter resampler. (Default: 50).\n' \
+    '\n' \
+    '    -Q <respeed-quantum>\n' \
+    '        When defluttering and respeeding input audio, the algorithm\n' \
+    '        ultimately determines the corrected playback rate of each input\n' \
+    '        sample. For efficiency, this rate is rounded to the nearest\n' \
+    '        integer value k, in the expression  k / Q. The higher\n' \
+    '        the value of Q (the respeed quantum), the more resolution the\n' \
+    '        will be available to the resampler in placing the respeeded\n' \
+    '        sample in the correct place during playback. (Default: 320)\n' \
+    '\n' \
     '   TRACE MODE\n' \
     '\n' \
     '   In trace processing mode, the tape flutter and wow are loaded from\n' \
@@ -466,11 +579,29 @@ def usage(prog, code, msg=None):
     '   tracks.\n' \
     '\n' \
     '   trace\n' \
-    '       [-T <version-tag>]\n' \
+    '       [-T <version-tag>] [-r <outrate>] [-q <quality>]\n' \
+    '       [-Q <respeed-quantum>]\n' \
     '       <trace-data-file>\n' \
     '       <audio-file-1-in> <audio-file-1-out>\n' \
     '       [<audio-file-2-in> <audio-file-2-out>]\n' \
     '\n' \
+    '    -r <outrate>\n' \
+    '        Convert each defluttered output file to sample rate <outrate>,\n' \
+    '        hertz. (Default: 16000).\n' \
+    '\n' \
+    '    -q <quality>\n' \
+    '        Use a Sinc window size of <quality> input samples when\n' \
+    '        constructing the deflutter resampler. (Default: 50).\n' \
+    '\n' \
+    '    -Q <respeed-quantum>\n' \
+    '        When defluttering and respeeding input audio, the algorithm\n' \
+    '        ultimately determines the corrected playback rate of each input\n' \
+    '        sample. For efficiency, this rate is rounded to the nearest\n' \
+    '        integer value k, in the expression  k / Q. The higher\n' \
+    '        the value of Q (the respeed quantum), the more resolution the\n' \
+    '        will be available to the resampler in placing the respeeded\n' \
+    '        sample in the correct place during playback. (Default: 320)\n' \
+
     '    -T <version-tag>\n' \
     '        When updating the Broadcast Wave meta-data in the output, use\n' \
     '        <version-tag> as the tool version number in the Coding\n' \
@@ -533,7 +664,33 @@ def progress_report(total, inrate, outrate, cmd, arg, written):
 
     return samples_read
 
-def UpdateBWF(source, source_name, dest, dest_name, tag):
+def fn_escape(fn):
+    '''
+    Insert escape sequences in a filename to make it meta-data suitable.
+    '''
+    fn = fn.replace('\\', '\\\\')
+    return fn.replace(' ', '\\ ')
+
+def GenerateTraceMetaData(source_path, prescale, skip, deflutter_depth,
+    source_rate):
+    '''
+    Generate a history block for the tracing portion of a session.
+    '''
+
+    return 'TimecodeSourceFile={SourceFile} ' \
+    'Prescale={Prescale} ' \
+    'SkipSeconds={SkipSeconds} ' \
+    'DeflutterDepth={DeflutterDepth} ' \
+    'InputSampleRate={InputSampleRate}'.format(
+        SourceFile=fn_escape(os.path.split(source_path)[-1]),
+        Prescale=prescale,
+        SkipSeconds=skip,
+        DeflutterDepth=deflutter_depth,
+        InputSampleRate=source_rate
+    )
+
+def UpdateBWF(source, source_name, dest, dest_name, trace_meta_data,
+            speed_quantum, quality, tag):
     '''
     Preserve and update (or create) Broadcast Wave format information.
     
@@ -572,9 +729,18 @@ def UpdateBWF(source, source_name, dest, dest_name, tag):
             CodingHistory=''
         )
 
+    resampler_meta = \
+        'SourceFile={SourceFile} RespeedQuantum={RespeedQuantum} ' \
+        'Quality={Quality}'.format(
+        SourceFile=fn_escape(os.path.split(source_name)[-1]),
+        RespeedQuantum=speed_quantum,
+        Quality=quality
+    )
+
     this_entry = \
         'Defluttered from timecode on '+date_ref+' '+time_ref+' UTC using ' \
-        'deflutter.py ' + tag + '\r\n'
+        'deflutter.py ' + trace_meta_data + ' ' + resampler_meta + \
+        '\r\n'
 
     coding_history = bwf.CodingHistory
 
@@ -610,9 +776,11 @@ def do_timecode_input(prog, args):
     prescale = 1
     timecode_out_path = None
     trace_out = None
-    tag = 'Unknown version'
+    additional_meta_data = ''
+    speed_quantum = 320
+    quality = 50
 
-    opts, args = getopt.getopt(args, 'f:is:d:t:o:hT:')
+    opts, args = getopt.getopt(args, 'f:is:d:t:o:hT:r:q:Q:')
     for opt, val in opts:
         if opt == '-i':
             prescale = -1
@@ -627,7 +795,13 @@ def do_timecode_input(prog, args):
         elif opt == '-o':
             trace_out = open(val, 'wb')
         elif opt == '-T':
-            tag = val
+            additional_meta_data = val
+        elif opt == '-r':
+            outrate = int(val)
+        elif opt == '-q':
+            quality = int(val)
+        elif opt == '-Q':
+            speed_quantum = int(val)
         elif opt == '-h':
             usage(prog, 0)
 
@@ -650,10 +824,18 @@ def do_timecode_input(prog, args):
         check_overflow = check_overflow * tc_source.rate()
 
     #
+    # Create a meta-data comment for all of the parameters involved.
+    #
+    trace_meta_data = GenerateTraceMetaData(
+        tc_source_path, prescale, skip, deflutter_depth, tc_source.rate()
+    )
+
+    #
     # Set up the trace output file, if directed.
     #
     if trace_out is not None:
-        InitializeTraceFile(trace_out, skip)
+        InitializeTraceFile(trace_out, skip, int(tc_source.rate()),
+            trace_meta_data)
 
     #
     # Set up all the input audio tracks.
@@ -666,9 +848,12 @@ def do_timecode_input(prog, args):
     if timecode_out_path is not None:
         s = WaveSource(tc_source_path)
         o = WaveSink(timecode_out_path, outrate, 1, 2)
-        UpdateBWF(s, tc_source_path, o, timecode_out_path, tag)
-        rs = ScalableResampler(s.rate(), outrate, speed_quantum=320,
-            quality=50)
+
+        UpdateBWF(s, tc_source_path, o, timecode_out_path, trace_meta_data,
+            speed_quantum, quality, additional_meta_data)
+
+        rs = ScalableResampler(s.rate(), outrate, speed_quantum=speed_quantum,
+            quality=quality)
         tracks.append(Track(source=s, resampler=rs, sink=o))
 
     #
@@ -677,9 +862,12 @@ def do_timecode_input(prog, args):
     for i in range(0, len(args), 2):
         s = WaveSource(args[i])
         o = WaveSink(args[i+1], outrate, 1, 2)
-        UpdateBWF(s, args[i], o, args[i+1], tag)
-        rs = ScalableResampler(s.rate(), outrate, speed_quantum=320,
-            quality=50)
+
+        UpdateBWF(s, args[i], o, args[i+1], trace_meta_data, speed_quantum,
+            quality, tag)
+
+        rs = ScalableResampler(s.rate(), outrate, speed_quantum=speed_quantum,
+            quality=quality)
         tracks.append(Track(source=s, resampler=rs, sink=o))
 
     #
@@ -743,14 +931,23 @@ def do_trace_input(prog, args):
     Trace input mode. Take an existing trace and apply it to other tracks.
     '''
     outrate = 16000
-    tag = 'Unknown verion'
+    tag = 'Version=Unknown-version'
+    speed_quantum = 320
+    quality = 50
 
-    opts, args = getopt.getopt(args, 'hT:')
+    opts, args = getopt.getopt(args, 'hT:q:Q:r:')
     for opt, val in opts:
         if opt == '-h':
             usage(prog, 0)
         elif opt == '-T':
             tag = val
+        elif opt == '-r':
+            outrate = int(val)
+        elif opt == '-q':
+            quality = int(val)
+        elif opt == '-Q':
+            speed_quantum = int(val)
+
 
     if len(args) < 1:
         usage(prog, 1, 'Need trace input file.')
@@ -761,7 +958,10 @@ def do_trace_input(prog, args):
     #
     trace_path, args = args[0], args[1:]
     trace = open(trace_path, 'rb')
-    block_source = iter(RespeedBlocksFromFile(trace))
+
+    header = ReadTraceHeaderFromFile(trace)
+    if header.version == 1:
+        raise Exception('Not a v2 trace file')
 
     if len(args) <  2:
         usage(prog, 'Need at least one audio file to deflutter!')
@@ -773,10 +973,17 @@ def do_trace_input(prog, args):
 
     for i in range(0, len(args), 2):
         s = WaveSource(args[i])
+
+        if int(s.rate()) != header.input_sample_rate:
+            raise Exception('Trace sample rate does not match input rate.')
+
         o = WaveSink(args[i+1], outrate, 1, 2)
-        UpdateBWF(s, args[i], o, args[i+1], tag)
-        rs = ScalableResampler(s.rate(), outrate, speed_quantum=320,
-            quality=50)
+
+        UpdateBWF(s, args[i], o, args[i+1], header.comment, speed_quantum,
+            quality, tag)
+
+        rs = ScalableResampler(s.rate(), outrate, speed_quantum=speed_quantum,
+            quality=quality)
         tracks.append(Track(source=s, resampler=rs, sink=o))
 
     #
@@ -792,7 +999,7 @@ def do_trace_input(prog, args):
 
     samples_processed = 0
 
-    for cmd, arg in block_source:
+    for cmd, arg in iter(RespeedBlocksFromFile(header, trace)):
         #
         # Respeed any tracks that are along for the ride.
         #

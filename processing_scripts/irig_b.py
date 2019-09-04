@@ -2,7 +2,7 @@
 from __future__ import print_function
 from jdsp.io import WaveSource, WaveSink
 from jdsp.blocks import ZeroCrossDetector, HighPassFilter
-import numpy
+from numpy import rint, zeros, empty
 import collections
 import functools
 from apollo import TimeBases, GMTFromIRIG, MissionTimeFromIRIG
@@ -15,6 +15,16 @@ except ImportError:
 
 IRIGBFrame = collections.namedtuple('IRIGBFrame',
     'seconds minutes hours days years control sbs absolute_sample ok_sbs_tm')
+
+#
+# For very accurate timing information across long time periods (weeks),
+# we represent an absolute sample position as an integer part and a separate
+# fractional part. Combining these into a single floating point value would
+# loose precision in these scales.
+#
+# NOTE: The fractional part may be negative!
+#
+AbsoluteSample = collections.namedtuple('AbsoluteSample', 'i f')
 
 def full_frame_time(f):
     return '%05x %02dy %03dd %02dh %02dm %02ds' % (
@@ -34,12 +44,20 @@ class IRIGBDeframer(object):
         self.word = 0
         self.receiver = receiver
         self.state_handle = self.receive_bit_in_idle
-        self.bit_times = numpy.empty(10, dtype='int64')
-        self.bit_times_i = 0
+        self.bit_zc_times = [ AbsoluteSample(0, 0) for i in range(10) ]
+        self.bit_zc_times_i = 0
 
-    def receive_bit(self, abs_samp, bit):
-        self.bit_times[self.bit_times_i] = abs_samp
-        self.bit_times_i = (self.bit_times_i + 1) % 10
+    def receive_bit(self, abs_zc_time, bit):
+        '''
+        Receive an incoming bit.
+        
+        bit -- The bit value.
+        abs_zc_time -- The absolute sample time of the point where the
+            bit actually started in the sample stream. (This should be
+            an AbsoluteSample type).
+        '''
+        self.bit_zc_times[self.bit_zc_times_i] = abs_zc_time
+        self.bit_zc_times_i = (self.bit_zc_times_i + 1) % 10
         self.word <<= 1
         self.word &= 0xfffff
         if bit:
@@ -63,7 +81,7 @@ class IRIGBDeframer(object):
             self.control_high = 0
             self.sbs_low = 0
             self.sbs_high = 0
-            self.frame_abs_samp = self.bit_times[self.bit_times_i]
+            self.frame_abs_samp = self.bit_zc_times[self.bit_zc_times_i]
             self.state_handle = self.receive_bit_in_sync
 
     def receive_bit_in_sync(self, bit):
@@ -153,12 +171,16 @@ class IRIGBDecoder(object):
         receiver - Callable to receive decoded frames.'''
         self.zc = ZeroCrossDetector(rate, 1000.0)
         self.framer = IRIGBDeframer(receiver)
-        self.quarter_phase_samples = int((rate / 1000.0) / 4.0)
-        self.half_phase_samples = int((rate / 1000.0) / 2.0)
-        self.last_n_amplitudes = numpy.zeros(100, dtype='float')
+        self.quarter_phase_samples = (rate / 1000.0) / 4.0
+        self.half_phase_samples = (rate / 1000.0) / 2.0
+        if self.quarter_phase_samples < 1.0:
+            raise Exception('Sample rate too low for signal.')
+        self.last_n_amplitudes = zeros(100, dtype='float')
         self.last_n_amplitudes[range(50)] = 1.0
         self.amplitudes_i = 0
         self.deferred_peak_index = None
+        self.deferred_peak_index_f = None
+        self.deferred_peak_zc_time = None
         self.deferred_valley_index = None
         self.sample_number = 0
 
@@ -169,86 +191,221 @@ class IRIGBDecoder(object):
     def process(self, data):
         '''Decode the given data, returning frames found, if any.'''
         #
-        # Detect plausible zero crossings in the data.
+        # Detect plausible zero crossings in this block of samples.
         #
-        cross_points = self.zc.process(data)
+        # cross_point is the index of the sample just _after_ the
+        # zero crossing point detected. fraction is the distance from the
+        # crossing point to that sample, which will always be in the
+        # range [0, 1).
+        #
+        cross_points, fractions = self.zc.process(data)
+
+        #
+        # Compute their absolute sample times, for future use.
+        #
+        cross_times = [
+            AbsoluteSample(i_part, f_part)
+            for i_part, f_part in
+                izip(cross_points + self.sample_number, -fractions)
+        ]
 
         #
         # Calculate the peak waveform points given the zero crossing
         # indexes.
         #
-        peak_idxs = cross_points + self.quarter_phase_samples
+        peak_idxs = cross_points - fractions + self.quarter_phase_samples
 
         #
-        # If there's a deferred peak to collect, incorporate
-        # it.
+        # Round each of these points to the nearest integer.
+        #
+        ipeak_idxs = rint(peak_idxs).astype('int32')
+
+        #
+        # Sometimes a peak is calculated to occur just beyond a processing
+        # block. When this happens the peak is "deferred" into the next
+        # block. See if that condition has happened in the previous block, and
+        # if so, see if it can be collected in this block.
         #
         if self.deferred_peak_index is not None:
+            #
+            # There is a deferred peak to collect. Most likely it is
+            # collectable now.
+            #
+            # First off, there should never be a both a deferred valley and
+            # a deferred peak.
+            #
             assert(self.deferred_valley_index is None)
+
+            #
+            # Is the deferred peak inside the current block?
+            #
             if self.deferred_peak_index < len(data):
-                if len(peak_idxs):
-                    assert(self.deferred_peak_index < peak_idxs[0])
-                peak_idxs = prepend(peak_idxs, self.deferred_peak_index,'int32')
+                #
+                # It's inside this block. Are there any regular (non-deferred)
+                # peaks in this block?
+                #
+                if len(ipeak_idxs):
+                    #
+                    # There are other peaks. The deferred one must come before
+                    # any other ones.
+                    #
+                    assert(self.deferred_peak_index < ipeak_idxs[0])
+
+                #
+                # Incorporate the deferred peak into the peaks to collect
+                # in this block.
+                #
+                ipeak_idxs = prepend(ipeak_idxs, self.deferred_peak_index,
+                    'int32')
+                peak_idxs = prepend(peak_idxs, self.deferred_peak_index_f,
+                    'float')
+                cross_times.insert(0, self.stored_zc_time)
+
+                #
+                # Mark that the deferment has been taken.
+                #
                 self.deferred_peak_index = None
+                self.deferred_peak_index_f = None
+                self.stored_zc_time = None
             else:
+                #
+                # The deferred peak is somehow beyond even this block! This
+                # can happen if the input blocks are small. Anyways, update
+                # the deferred peak point to account for the data that is
+                # in this block.
+                #
                 self.deferred_peak_index -= len(data)
+                self.deferred_peak_index_f -= len(data)
         elif self.deferred_valley_index is not None:
             #
-            # There's a deferred valley to collect.
+            # There's a deferred valley to collect. Most likely it is
+            # collectable now.
+            #
+            # But first off, there should never be a both a deferred valley and
+            # a deferred peak.
             #
             assert(self.deferred_peak_index is None)
+
+            #
+            # Is the deferred valley inside the current block?
+            #
             if self.deferred_valley_index < len(data):
+                #
+                # The deferred valley is inside this block.
+                #
+                # With the deferred valley we can finally compute the
+                # amplitude of the wave portion from the peak to the valley,
+                # and as such, we are ready to report the peak-to-peak
+                # measurement up to the framing and decoding engine.
+                #
+
+                #
+                # Compute the peak-to-peak amplitude.
+                #
                 amplitude = self.stored_peak_value - \
                     data[self.deferred_valley_index]
+
+                #
+                # Notify the decoder of this single wave pulse.
+                #
                 self.receive_pulses(
-                    (self.stored_peak_abs_s,),
+                    (self.stored_zc_time,),
                     (amplitude,)
                 )
-                self.stored_peak_abs_s = None
+
+                #
+                # Mark the deferred valley as serviced.
+                #
+                self.stored_zc_time = None
                 self.stored_peak_value = None
                 self.deferred_valley_index = None
             else:
+                #
+                # Ths deferred valley is still outside this block. Update
+                # the valley point to account for this data in this block.
+                #
                 self.deferred_valley_index -= len(data)
 
+        #
+        # Compute the locations of the expect signal valleys.
+        #
         valley_idxs = peak_idxs + self.half_phase_samples
 
-        servicable_p = peak_idxs[peak_idxs < len(data)]
-        servicable_v = valley_idxs[valley_idxs < len(data)]
+        #
+        # Round each valley index to the nearest integer. The fractional
+        # part needn't be kept.
+        #
+        ivalley_idxs = rint(valley_idxs).astype('int32')
+
+        #
+        # We can't fetch samples that have already been thrown away. Make
+        # sure we haven't made an algorithmic error.
+        #
+        assert((ipeak_idxs >= 0).all())
+        assert((ivalley_idxs >= 0).all())
+
+        #
+        # Find the servicable peak and valley samples in the current
+        # data buffer.
+        #
+        servicable_indexes = ipeak_idxs < len(data)
+        servicable_p = ipeak_idxs[servicable_indexes]
+        servicable_v = ivalley_idxs[ivalley_idxs < len(data)]
+
+        #
+        # Fetch those peak and valley values.
+        #
         peaks = data[servicable_p]
         valleys = data[servicable_v]
-        unservicable_p = peak_idxs[peak_idxs >= len(data)]
+
+        #
+        # Find the unservicable peaks, if any. These are peaks that
+        # will need to be deferred until the next block.
+        #
+        unservicable_indexes = ipeak_idxs >= len(data)
+        unservicable_p = ipeak_idxs[unservicable_indexes]
+        # There should be no more than one, ever.
+        assert(len(unservicable_p) <= 1)
 
         if len(peaks) > len(valleys):
             # We've got a deferred valley to process
             assert(len(peaks) - len(valleys) == 1)
             # Collect and store the peak value now.
-            self.stored_peak_abs_s = servicable_p[-1] + self.sample_number
+            self.stored_zc_time = cross_times[-1]
             self.stored_peak_value = peaks[-1]
-            self.deferred_valley_index = valley_idxs[-1] - len(data)
+            self.deferred_valley_index = ivalley_idxs[-1] - len(data)
             # Remove its peak from the collection list.
             peaks = peaks[:-1]
+            cross_times = cross_times[:-1]
         elif len(unservicable_p):
+            self.stored_zc_time = cross_times[-1]
             self.deferred_peak_index = unservicable_p[0] - len(data)
+            self.deferred_peak_index_f = peak_idxs[unservicable_indexes][0] - \
+                len(data)
 
         amplitudes = peaks - valleys
 
         if len(amplitudes):
+            #
+            # We have a full set of bit waveforms ready now. Send them, and
+            # their starting positions, up to the decoder.
+            #
             self.receive_pulses(
-                servicable_p + self.sample_number - self.quarter_phase_samples,
+                cross_times,
                 amplitudes
             )
 
         self.sample_number += len(data)
 
-    def receive_pulses(self, start_sample_no, amplitudes):
-        for n, amplitude in izip(start_sample_no, amplitudes):
+    def receive_pulses(self, start_sample_times, amplitudes):
+        for t, amplitude in izip(start_sample_times, amplitudes):
             split_point = self.last_n_amplitudes.mean()
             self.last_n_amplitudes[self.amplitudes_i] = amplitude
             self.amplitudes_i = (self.amplitudes_i + 1) % 100
-            self.framer.receive_bit(n, amplitude > split_point)
+            self.framer.receive_bit(t, amplitude > split_point)
 
 def prepend(array, value, dtype):
-    n = numpy.empty(len(array) + 1, dtype=dtype)
+    n = empty(len(array) + 1, dtype=dtype)
     n[0] = value
     n[1:] = array
     return n
@@ -260,13 +417,15 @@ def frame_filter(cb, b, rate, f):
 def frame_dump_audacity(b, rate, f):
     mission = met_str(MissionTimeFromIRIG(b, f))
     frame = gmt_str(GMTFromIRIG(b, f))
-    tm = '%f' % (float(f.absolute_sample) / rate)
+    t = float(f.absolute_sample.i) / rate
+    t += f.absolute_sample.f / rate
+    tm = '%f' % t
     print(tm + '\t' + tm + '\t' + mission, frame)
 
 def frame_dump_plain(b, rate, f):
     mission = met_str(MissionTimeFromIRIG(b, f))
     frame = gmt_str(GMTFromIRIG(b, f))
-    print(mission, frame, '%09d' % f.absolute_sample)
+    print(mission, frame, '%09d' % f.absolute_sample.i)
 
 def frame_dump_raw(b, rate, f):
     print(full_frame_time(f))
@@ -278,7 +437,8 @@ def start_dump_adobe(b, rate):
 def frame_dump_adobe(b, rate, f):
     met = met_str(MissionTimeFromIRIG(b, f))
     gmt = gmt_str(GMTFromIRIG(b, f))
-    sec = float(f.absolute_sample) / rate
+    sec = float(f.absolute_sample.i) / rate
+    sec += float(f.absolute_sample.f) / rate
     h = int(sec / 3600.0)
     m = int(sec / 60.0) % 60
     s = sec % 60
