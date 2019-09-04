@@ -800,7 +800,7 @@ def do_timecode_input(prog, args):
     prescale = 1
     timecode_out_path = None
     trace_out = None
-    additional_meta_data = ''
+    additional_meta_data = None
     speed_quantum = 320
     quality = 50
 
@@ -853,6 +853,9 @@ def do_timecode_input(prog, args):
     trace_meta_data = GenerateTraceMetaData(
         tc_source_path, prescale, skip, deflutter_depth, tc_source.rate()
     )
+
+    if additional_meta_data is not None:
+        trace_meta_data += ' ' + additional_meta_data
 
     #
     # Set up the trace output file, if directed.
