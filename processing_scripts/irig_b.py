@@ -461,10 +461,14 @@ def main(args):
     import getopt
 
     def usage(prog):
-      msg = 'usage: {prog} [-i] [-F] [-a|-p|-l|-r] [-v|-f <filter>]' \
+      msg = \
+          'usage: {prog} [-i] [-s <skipsec>] [-F] [-a|-p|-l|-r] [-f <filter>]'\
           '[-b <base>|-y <year>] ' \
           '<wav-file>\n' \
           '  Options for input\n' \
+          '-s  Skip <skipsec> seconds of audio before processing.\n' \
+          '    Can also be negative, in which case decoding will start\n' \
+          '    -<skipsec> seconds before the end of the file.\n' \
           '-i  Invert audio before processing.\n' \
           '-F  Apply 400 Hz high-pass filter to audio before processing.\n' \
           '    (Useful for some signals.)\n' \
@@ -477,7 +481,6 @@ def main(args):
           '-p  Write plain labels on output.\n' \
           '-r  Write raw labels on output.\n' \
           '  Frame filtering\n' \
-          '-v  Write all frames to output, no filtering.\n' \
           '-f  Filter frames according to pattern in <filter>\n' \
           '    Filter is any combination of the characters:\n' \
           '      y - Filter out frames with non-zero year fields\n' \
@@ -498,6 +501,7 @@ def main(args):
     prog = args[0]
     args = args[1:]
     invert = False
+    do_skip = False
     hp_filter = False
     frame_filter_expr = None
     styles = set()
@@ -506,7 +510,7 @@ def main(args):
     year_basis_requested = False
     basis_name = 'a11'
 
-    opts, args = getopt.getopt(args, 'aFrpilhb:f:y:')
+    opts, args = getopt.getopt(args, 'as:Frpilhb:f:y:')
     for opt, val in opts:
         if opt == '-i':
             invert = True
@@ -528,6 +532,9 @@ def main(args):
             year_base = int(val)
         elif opt == '-F':
             hp_filter = True
+        elif opt == '-s':
+            do_skip = True
+            skip_secs = float(val)
         elif opt == '-h':
             usage(prog)
 
@@ -563,9 +570,30 @@ def main(args):
 
     rate = src.rate()
     channels = src.channels()
+    total_samples = src._w.getnframes()
+    total_secs = total_samples / rate
+
     if channels != 1:
           error('Only mono for now')
 
+    if do_skip:
+        if skip_secs < 0.0:
+            skip_secs = total_secs + skip_secs
+
+        skip = skip_secs * rate
+
+        if skip >= total_samples:
+            error('Skip setting is too big. Total size is {:f} seconds'.format(
+                total_secs), 1)
+    else:
+        skip = 0
+
+    assert(skip < total_samples)
+
+    #
+    # Set things up to read one nominal second of audio per processing
+    # cycle.
+    #
     block_size = int(rate)
 
     if hp_filter:
@@ -618,10 +646,15 @@ def main(args):
     decoder = IRIGBDecoder(rate, callback)
 
     if hp_filter:
-        decoder.set_sample_number(hp.delay() * -1)
+        delay = hp.delay()
         decoder_process = lambda samples: decoder.process(hp.process(samples))
     else:
+        delay = 0
         decoder_process = decoder.process
+
+    decoder.set_sample_number(skip - delay)
+
+    src._w.setpos(skip)
 
     while True:
         frames = src.read(block_size)
