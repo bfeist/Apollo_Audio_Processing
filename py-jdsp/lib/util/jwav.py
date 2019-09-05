@@ -81,9 +81,13 @@ def ChunkLocators_from_file(f, rewind=True, limit=None):
         #
         # Seek to next chunk header.
         #
+        next_header_pos = f.tell() + hdr.size
+        # Must begin on an even-byte boundary.
+        next_header_pos += next_header_pos % 2
+
         if limit is not None:
-            assert(f.tell() + hdr.size <= limit)
-        f.seek(hdr.size, 1)
+            assert(next_header_pos <= limit)
+        f.seek(next_header_pos, 0)
     if rewind:
         f.seek(original_position, 0)
 
