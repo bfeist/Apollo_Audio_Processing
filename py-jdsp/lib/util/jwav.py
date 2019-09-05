@@ -96,9 +96,9 @@ def compute_byte_rate(channels, sample_rate, bits_per_sample):
 
 class FormatError(Exception):
     pass
-class AlreadyReadingData(Exception):
-    pass
 class AlreadyWritingData(Exception):
+    pass
+class InvalidPosition(Exception):
     pass
 
 class JWaveSource(object):
@@ -157,15 +157,18 @@ class JWaveSource(object):
         self.assert_fmt(fmt.BlockAlign == computed_block_align,
             'Mismatched block alignment.')
 
-        self._framerate = fmt.SampleRate
-        self._nchannels = fmt.NumChannels
-        self._sampwidth = fmt.BitsPerSample // 8
-
         #
         # Find the data chunk.
         #
         data_locator = locators_by_name.get('data')
         self.assert_fmt(data_locator is not None, 'No "data" chunk.')
+
+        self._framerate = fmt.SampleRate
+        self._nchannels = fmt.NumChannels
+        self._sampwidth = fmt.BitsPerSample // 8
+        self._framesize = self._nchannels * self._sampwidth
+        self._nframes = data_locator.header.size // self._framesize
+        self._frameposition = 0
 
         self.data_offset = data_locator.offset
 
@@ -178,8 +181,7 @@ class JWaveSource(object):
     # Python wave module compatability.
     #
     def getnframes(self):
-        data_locator = self.locators.get('data')
-        return data_locator.header.size // self._nchannels // self._sampwidth
+        return self._nframes
 
     def getframerate(self):
         return self._framerate
@@ -190,6 +192,21 @@ class JWaveSource(object):
     def getsampwidth(self):
         return self._sampwidth
 
+    def setpos(self, frame_position):
+        if not self.in_data:
+            self.in_data = True
+
+        if frame_position > self._nframes:
+            raise InvalidPosition('Position is too far.')
+        elif frame_position < 0:
+            raise InvalidPosition('Position is negative.')
+
+        self._w.seek(self.data_offset + frame_position * self._framesize, 0)
+        self._frameposition = frame_position
+
+    def getpos(self):
+        return self._frameposition
+
     def readframes(self, frame_count):
         if not self.in_data:
             self._w.seek(self.data_offset, 0)
@@ -199,7 +216,10 @@ class JWaveSource(object):
         # TODO!
         # XXX data portion may not be at end of file! Check limits!
         #
-        return self._w.read(self._nchannels * self._sampwidth * frame_count)
+        data = self._w.read(self._framesize * frame_count)
+        self._frameposition += len(data) // self._framesize
+
+        return data
 
     def chunks(self):
         '''
@@ -216,24 +236,21 @@ class JWaveSource(object):
         
         Returns the entire data portion of the identified chunk, or
         None if the chunk is not present in the file.
-        
-        Chunk data can only be returned if samples have yet to be read
-        from the file. If samples have already been fetched (via readframes())
-        then this operation raises AlreadyReadingData.
         '''
         chunk_locator = self.locators.get(chunk_name)
         if chunk_locator is None:
             return None
 
+        self._w.seek(chunk_locator.offset, 0)
+        data = self._w.read(chunk_locator.header.size)
+
         if self.in_data:
             #
-            # Reading chunk data will screw up the read pointer! Can't
-            # do that now.
+            # We were in the midst of reading frames. Go back to that.
             #
-            raise self.AlreadyReadingData()
+            self.setpos(self._frameposition)
 
-        self._w.seek(chunk_locator.offset, 0)
-        return self._w.read(chunk_locator.header.size)
+        return data
 
     @staticmethod
     def assert_fmt(cond, msg):
