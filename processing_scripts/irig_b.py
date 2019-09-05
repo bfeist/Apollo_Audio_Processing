@@ -484,7 +484,7 @@ def main(args):
           '      b - Filter out frames where SBS != H:M:S fields.\n' \
           '          (SBS = Straight Binary Seconds)\n' \
           '    (Default: \'by\')\n' \
-      .format(prog=prog, bases=' '.join(time_bases.keys()))
+      .format(prog=prog, bases=' '.join(TimeBases.keys()))
       print(msg, file=sys.stderr)
       sys.exit(1)
 
