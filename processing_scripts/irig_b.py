@@ -610,7 +610,7 @@ def main(args):
 
     if frame_filter_func is not None:
         def callback(frame):
-            if filter_frame_func(mission_basis, rate, frame):
+            if frame_filter_func(mission_basis, rate, frame):
                 dump(mission_basis, rate, frame)
     else:
         callback = functools.partial(dump, mission_basis, rate)
