@@ -73,8 +73,9 @@ BWF_Audio_Extension_struct = struct.Struct('<256s32s32s10s8sIIH64sHHHHH180s')
 
 def BWFData_from_bytes(b):
     assert(len(b) >= BWF_Audio_Extension_struct.size)
-    fields = list(BWF_Audio_Extension_struct.unpack(b))
-    coding_history = b[BWF_Audio_Extension_struct.size:]
+    fixed_part = b[:BWF_Audio_Extension_struct.size]
+    fields = list(BWF_Audio_Extension_struct.unpack(fixed_part))
+    coding_history = b[BWF_Audio_Extension_struct.size:].rstrip('\x00')
     fields.append(coding_history)
 
     return BWF_Audio_Extension(*fields)
@@ -153,38 +154,74 @@ def RespeedBlocksFromFile(header, f):
         yield 'rspd', b
 
 def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
-    block_size, deflutter_depth):
+    block_size, deflutter_depth, do_high_pass_filtering, do_frame_filtering):
     '''
     Iterator. Yields respeed directions from an IRIG-B timecode WAV.
     '''
     queued_commands = []
     last_frame = None
 
+    if do_frame_filtering:
+        #
+        # To correct long-term drift of the signal we use IRIG-B frame
+        # start markers as indicators of the long-term drift. But in bad
+        # signals this can cause short-term jitter if an IRIG-B frame is
+        # detected where one shouldn't be.
+        #
+        # With this option turned on, we will only consider good frames
+        # when attempting to correct long-term drift. But since IRIG-B doesn't
+        # have any built-in error correction schemes, the way to detect
+        # bad frames is to rely on some heuristics and other redundancies.
+        #
+        # For now, this means only accepting a frame as valid and usable if its
+        # SBS field checks out against its HH:MM:SS field.
+        #
+        frame_filter = lambda frame: frame.sbs_tm_ok
+    else:
+        #
+        # Don't filter any frames.
+        #
+        frame_filter = lambda frame: True
+
     #
     # Set up a function to receive decoded timecode frames.
     #
     def frame_received(f):
-        queued_commands.append(f)
+        if frame_filter(f):
+            queued_commands.append(f)
 
     tc_follower = ToneFollower(tc_source.rate(), 1000, 300, 28)
     tc_decoder = IRIGBDecoder(tc_source.rate(), frame_received)
 
     #
-    # Construct a high-pass filter for denoising timecode samples.
-    # Use a 5 millisecond window.
+    # Set up timecode audio preprocessing.
     #
-    five_ms_samples = int(tc_source.rate() * 0.005)
-    if (five_ms_samples % 2) == 0:
-        five_ms_samples += 1
+    if do_high_pass_filtering:
+        #
+        # Construct a high-pass filter for denoising timecode samples.
+        #
+        # We'll use a 400 Hz high pass filter with enough taps to cover
+        # 5 milliseconds of time.
+        #
+        window_samples = int(tc_source.rate() * 0.005)
+        if (window_samples % 2) == 0:
+            window_samples += 1
 
-    tc_hp = HighPassFilter(tc_source.rate(), five_ms_samples, 400.0)
+        tc_hp = HighPassFilter(tc_source.rate(), window_samples, 400.0)
+        timecode_delay = tc_hp.delay()
+
+        preprocess = lambda samples: tc_hp.process(samples*prescale)
+        preprocess_done = lambda: tc_hp.done()
+    else:
+        preprocess = lambda samples: samples*prescale
+        preprocess_done = lambda: np.empty(0, dtype='float')
+        timecode_delay = 0
 
     #
     # Figure out what kind of delays our processing system is going to
     # incur so that we can process the right audio with the right
     # speed measurements.
     #
-    timecode_delay = tc_hp.delay()
     pll_delay = tc_follower.delay()
 
     #
@@ -231,7 +268,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             # We've reached the end of the timecode audio.
             # Tell decoder and PLL that we're done.
             #
-            tc_decoder.process(tc_hp.done())
+            tc_decoder.process(preprocess_done())
             tc_phase_buf.add(tc_follower.done())
 
             #
@@ -247,7 +284,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             #
             # Feed to IRIG-B processor for frames.
             #
-            tc_decoder.process(tc_hp.process(tc_samples*prescale))
+            tc_decoder.process(preprocess(tc_samples))
 
             #
             # Feed to IRIG-B PLL tracker for wow and flutter.
@@ -268,20 +305,6 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             # Examine head frame information from queue.
             #
             frame = queued_commands[0]
-
-            #
-            # Only consider strictly verified frames.
-            #
-            if frame is not None and not frame.ok_sbs_tm:
-                #
-                # The straight binary seconds portion of this frame doesn't
-                # match the other parts of the frame. A really good frame
-                # would have a good match. Since the short term drift of this
-                # process is heavily affected by bad frames, don't use this
-                # one. A good one is bound to come up soon.
-                #
-                queued_commands.pop(0)
-                continue
 
             #
             # Do we have a previous frame?
@@ -538,11 +561,22 @@ def usage(prog, code, verb=None, msg=None):
     '   timecode [-f <max-idle>] [-i] [-s <offset>] [-r <outrate>]\n' \
     '       [-d <depth>] [-o <trace-data-out>] [-t <timecode-audio-out>]\n' \
     '       [-T <version-tag>] [-q <quality>] [-Q <respeed-quantum>]\n' \
+    '       [-F] [-m]\n' \
     '       <timecode-audio-in> [<audio-file-1-in> <audio-file-1-out>]\n' \
     '       [<audio-file-2-in> <audio-file-2-out>] ...\n' \
     '\n' \
     '    -i\n' \
     '        Invert IRIG-B signal before decoding.\n' \
+    '\n' \
+    '    -F\n' \
+    '        Apply a 400 Hertz high-pass filter to the timecode before\n' \
+    '        decoding.\n' \
+    '\n' \
+    '    -m\n' \
+    '        Apply error checking to IRIG-B signal to avoid locking on to\n' \
+    '        noise and inducing jitter. A frames will be checked to ensure\n' \
+    '        that its Straight-Binary-Seconds field matches its HH:MM:SS\n' \
+    '        field before being accepted.\n' \
     '\n' \
     '    -s <offset>\n' \
     '        Skip <offset> seconds from start of file. This will change\n' \
@@ -662,7 +696,7 @@ def progress_report(total, inrate, outrate, cmd, arg, written):
         speed_min = np.min(rate)
         speed_avg = np.average(rate)
         timecode = arg.timecode
-    elif:
+    else:
         start_sample_number = 0
         samples_read = arg
         speed_max = 1.0
@@ -699,29 +733,45 @@ def fn_escape(fn):
     '''
     Insert escape sequences in a filename to make it meta-data suitable.
     '''
-    fn = fn.replace('\\', '\\\\')
-    return fn.replace(' ', '\\ ')
+    fn = fn.replace('%', '%25')
+    fn = fn.replace(' ', '%20')
+    fn = fn.replace(',', '%2C')
+    return fn.replace(';', '%3B')
 
 def GenerateTraceMetaData(source_path, prescale, skip, deflutter_depth,
-    source_rate):
+    source_rate, do_hpf, do_frame_filter):
     '''
     Generate a history block for the tracing portion of a session.
     '''
 
-    return 'TimecodeSourceFile={SourceFile} ' \
-    'Prescale={Prescale} ' \
-    'SkipSeconds={SkipSeconds} ' \
-    'DeflutterDepth={DeflutterDepth} ' \
-    'InputSampleRate={InputSampleRate}'.format(
-        SourceFile=fn_escape(os.path.split(source_path)[-1]),
-        Prescale=prescale,
-        SkipSeconds=skip,
-        DeflutterDepth=deflutter_depth,
-        InputSampleRate=source_rate
-    )
+    meta_data = \
+        'TimeCodeSourceFile={SourceFile};' \
+        'Prescale={Prescale};' \
+        'SkipSeconds={SkipSeconds};' \
+        'DeflutterDepth={DeflutterDepth};' \
+        'InputSampleRate={InputSampleRate}'.format(
+            SourceFile=fn_escape(os.path.split(source_path)[-1]),
+            Prescale=prescale,
+            SkipSeconds=skip,
+            DeflutterDepth=deflutter_depth,
+            InputSampleRate=source_rate
+        )
 
-def UpdateBWF(source, source_name, dest, dest_name, trace_meta_data,
-            speed_quantum, quality, tag):
+    if do_hpf:
+        meta_data += \
+            ';' \
+            'TimeCodeHighPassFilter=400Hz;' \
+            'TimeCodeHighPassFilterWindow=0.005s'
+
+    if do_frame_filter:
+        meta_data += \
+            ';' \
+            'IRIGBFrameFilter=SBSMatchesHMS'
+
+    return meta_data
+
+def UpdateBWF(source, source_name, dest, dest_name, dest_rate, dest_depth,
+        dest_mode, trace_meta_data, speed_quantum, quality, tag):
     '''
     Preserve and update (or create) Broadcast Wave format information.
     
@@ -761,7 +811,8 @@ def UpdateBWF(source, source_name, dest, dest_name, trace_meta_data,
         )
 
     resampler_meta = \
-        'SourceFile={SourceFile} RespeedQuantum={RespeedQuantum} ' \
+        'SourceFile={SourceFile};' \
+        'RespeedQuantum={RespeedQuantum};' \
         'Quality={Quality}'.format(
         SourceFile=fn_escape(os.path.split(source_name)[-1]),
         RespeedQuantum=speed_quantum,
@@ -769,9 +820,18 @@ def UpdateBWF(source, source_name, dest, dest_name, trace_meta_data,
     )
 
     this_entry = \
-        'Defluttered from timecode on '+date_ref+' '+time_ref+' UTC using ' \
-        'deflutter.py ' + trace_meta_data + ' ' + resampler_meta + \
-        '\r\n'
+        'A=PCM,F={SampleRate},W={depth},M={Mode},' \
+        'T=Defluttered;Time={DateRef}T{TimeRef}-0000;' \
+        'Tool={Tool};{TraceMetaData};{ResampleMetaData}\n'.format(
+            SampleRate=dest_rate,
+            depth=dest_depth,
+            Mode=dest_mode,
+            DateRef=date_ref,
+            TimeRef=time_ref,
+            Tool='deflutter.py',
+            TraceMetaData=trace_meta_data,
+            ResampleMetaData=resampler_meta
+        )
 
     coding_history = bwf.CodingHistory
 
@@ -810,8 +870,10 @@ def do_timecode_input(prog, args):
     additional_meta_data = None
     speed_quantum = 320
     quality = 50
+    do_high_pass_filtering = False
+    do_frame_filtering = False
 
-    opts, args = getopt.getopt(args, 'f:is:d:t:o:hT:r:q:Q:')
+    opts, args = getopt.getopt(args, 'Fmf:is:d:t:o:hT:r:q:Q:')
     for opt, val in opts:
         if opt == '-i':
             prescale = -1
@@ -833,6 +895,10 @@ def do_timecode_input(prog, args):
             quality = int(val)
         elif opt == '-Q':
             speed_quantum = int(val)
+        elif opt == '-F':
+            do_high_pass_filtering = True
+        elif opt == '-m':
+            do_frame_filtering = True
         elif opt == '-h':
             usage(prog, 0, 'timecode')
 
@@ -858,7 +924,8 @@ def do_timecode_input(prog, args):
     # Create a meta-data comment for all of the parameters involved.
     #
     trace_meta_data = GenerateTraceMetaData(
-        tc_source_path, prescale, skip, deflutter_depth, tc_source.rate()
+        tc_source_path, prescale, skip, deflutter_depth, tc_source.rate(),
+        do_high_pass_filtering, do_frame_filtering
     )
 
     if additional_meta_data is not None:
@@ -883,8 +950,9 @@ def do_timecode_input(prog, args):
         s = WaveSource(tc_source_path)
         o = WaveSink(timecode_out_path, outrate, 1, 2)
 
-        UpdateBWF(s, tc_source_path, o, timecode_out_path, trace_meta_data,
-            speed_quantum, quality, additional_meta_data)
+        UpdateBWF(s, tc_source_path, o, timecode_out_path, outrate, 16,
+            'mono', trace_meta_data, speed_quantum, quality,
+            additional_meta_data)
 
         rs = ScalableResampler(s.rate(), outrate, speed_quantum=speed_quantum,
             quality=quality)
@@ -897,8 +965,8 @@ def do_timecode_input(prog, args):
         s = WaveSource(args[i])
         o = WaveSink(args[i+1], outrate, 1, 2)
 
-        UpdateBWF(s, args[i], o, args[i+1], trace_meta_data, speed_quantum,
-            quality, tag)
+        UpdateBWF(s, args[i], o, args[i+1], outrate, 16, 'mono',
+            trace_meta_data, speed_quantum, quality, additional_meta_data)
 
         rs = ScalableResampler(s.rate(), outrate, speed_quantum=speed_quantum,
             quality=quality)
@@ -912,10 +980,13 @@ def do_timecode_input(prog, args):
 
     total_samples = 0
 
-    for cmd, arg in \
+    respeed_source = iter(
         RespeedBlocksFromTimecode(tc_source, prescale, start_sample,
-            check_overflow, block_size, deflutter_depth):
+            check_overflow, block_size, deflutter_depth,
+            do_high_pass_filtering, do_frame_filtering)
+    )
 
+    for cmd, arg in respeed_source:
         #
         # If writing a trace output file, examine and possibly dump this
         # block.
@@ -1015,8 +1086,8 @@ def do_trace_input(prog, args):
 
         o = WaveSink(args[i+1], outrate, 1, 2)
 
-        UpdateBWF(s, args[i], o, args[i+1], header.comment, speed_quantum,
-            quality, tag)
+        UpdateBWF(s, args[i], o, args[i+1], outrate, 16, 'mono', header.comment,
+            speed_quantum, quality, tag)
 
         rs = ScalableResampler(s.rate(), outrate, speed_quantum=speed_quantum,
             quality=quality)
