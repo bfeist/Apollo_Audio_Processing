@@ -929,7 +929,7 @@ def do_timecode_input(prog, args):
     )
 
     if additional_meta_data is not None:
-        trace_meta_data += ' ' + additional_meta_data
+        trace_meta_data += ';' + additional_meta_data
 
     #
     # Set up the trace output file, if directed.
