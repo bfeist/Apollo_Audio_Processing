@@ -176,7 +176,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
         # For now, this means only accepting a frame as valid and usable if its
         # SBS field checks out against its HH:MM:SS field.
         #
-        frame_filter = lambda frame: frame.sbs_tm_ok
+        frame_filter = lambda frame: frame.ok_sbs_tm
     else:
         #
         # Don't filter any frames.
