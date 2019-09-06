@@ -822,7 +822,7 @@ def UpdateBWF(source, source_name, dest, dest_name, dest_rate, dest_depth,
     this_entry = \
         'A=PCM,F={SampleRate},W={depth},M={Mode},' \
         'T=Defluttered;Time={DateRef}T{TimeRef}-0000;' \
-        'Tool={Tool};{TraceMetaData};{ResampleMetaData}\n'.format(
+        'Tool={Tool};{TraceMetaData};{ResampleMetaData};{More}\n'.format(
             SampleRate=dest_rate,
             depth=dest_depth,
             Mode=dest_mode,
@@ -830,7 +830,8 @@ def UpdateBWF(source, source_name, dest, dest_name, dest_rate, dest_depth,
             TimeRef=time_ref,
             Tool='deflutter.py',
             TraceMetaData=trace_meta_data,
-            ResampleMetaData=resampler_meta
+            ResampleMetaData=resampler_meta,
+            More=tag
         )
 
     coding_history = bwf.CodingHistory
