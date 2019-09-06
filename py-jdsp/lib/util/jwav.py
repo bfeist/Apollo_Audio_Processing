@@ -325,11 +325,25 @@ class JWaveSink(object):
         hdr = ChunkHeader(name, len(data))
         hdr_bytes = ChunkHeader_to_bytes(hdr)
 
-        pos = self._allocate_chunk(len(data) + len(hdr_bytes))
+        #
+        # If a chunk occupies an odd number of bytes (counting both
+        # the chunk header and its data), it must be followed by a nul byte
+        # to ensure that any additional chunks start on an even byte boundary.
+        #
+        total_bytes = len(data) + len(hdr_bytes)
+        padding_needed = total_bytes % 2 != 0
+
+        if padding_needed:
+            total_bytes += 1
+
+        pos = self._allocate_chunk(total_bytes)
         data_pos = pos + len(hdr_bytes)
 
         self._w.write(hdr_bytes)
         self._w.write(data)
+
+        if padding_needed:
+            self._w.write('\x00')
 
         self.locators_by_name[name] = ChunkLocator(data_pos, hdr)
 
