@@ -380,7 +380,7 @@ class ScalableResampler(object):
             # to go back into the past to modify the output. And that's
             # not possible!
             #
-            if k == stop:
+            if k == stop and deltas[k-1] < window - 1:
                 #
                 # No more samples left to pull in.
                 # Update positions of samples that weren't processed.
