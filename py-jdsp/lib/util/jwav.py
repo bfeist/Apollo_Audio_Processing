@@ -219,17 +219,19 @@ class JWaveSource(object):
     def getpos(self):
         return self._frameposition
 
-    def readframes(self, frame_count):
+    def readframes(self, requested_frame_count):
         if not self.in_data:
             self._w.seek(self.data_offset, 0)
             self.in_data = True
 
-        #
-        # TODO!
-        # XXX data portion may not be at end of file! Check limits!
-        #
-        data = self._w.read(self._framesize * frame_count)
-        self._frameposition += len(data) // self._framesize
+        frames_available = self._nframes - self._frameposition
+        frame_count = min(requested_frame_count, frames_available)
+        byte_count = frame_count * self._framesize
+
+        data = self._w.read(byte_count)
+        assert(len(data) == byte_count)
+
+        self._frameposition += frame_count
 
         return data
 
