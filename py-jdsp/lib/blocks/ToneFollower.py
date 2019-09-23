@@ -11,12 +11,12 @@
 # Material is prohibited.
 #
 from numpy import linspace, empty, zeros, pi, exp, multiply, conj, angle
-from numpy import empty_like, float, complex64
+from numpy import empty_like, float, complex64, rint
 from scipy.signal import convolve, firwin
 from ..util import gcd
 
 def lowpass(rate, bw):
-    taps = rate / bw
+    taps = int(rint(rate / bw))
     if taps % 2 == 0:
         taps += 1
     return taps, firwin(taps, bw, pass_zero=True, nyq=rate).astype(float)
