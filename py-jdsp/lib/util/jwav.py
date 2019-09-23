@@ -126,21 +126,19 @@ class JWaveSource(object):
         # Quickly scan through all the chunks in the file, noting their
         # identifiers and data locations.
         #
-        locators_by_name = dict()
+        locators_by_name = collections.defaultdict(list)
         self.locators = locators_by_name
 
         for locator in ChunkLocators_from_file(wav):
-            self.assert_fmt(
-                locators_by_name.get(locator.header.name) is None,
-                'Duplicate chunks'
-            )
-            locators_by_name[locator.header.name] = locator
+            locators_by_name[locator.header.name].append(locator)
 
         #
-        # There needs to be a fmt chunk.
+        # There needs to be a single fmt chunk.
         #
-        fmt_locator = locators_by_name.get('fmt ')
-        self.assert_fmt(fmt_locator is not None, 'No "fmt " chunk.')
+        fmt_locators = locators_by_name.get('fmt ')
+        self.assert_fmt(fmt_locators is not None, 'No "fmt " chunk.')
+        self.assert_fmt(len(fmt_locators) == 1, 'Too many "fmt " chunks')
+        fmt_locator = fmt_locators[0]
 
         #
         # Check and break out the format header.
@@ -172,8 +170,10 @@ class JWaveSource(object):
         #
         # Find the data chunk.
         #
-        data_locator = locators_by_name.get('data')
-        self.assert_fmt(data_locator is not None, 'No "data" chunk.')
+        data_locators = locators_by_name.get('data')
+        self.assert_fmt(data_locators is not None, 'No "data" chunk.')
+        self.assert_fmt(len(data_locators) == 1, 'Too many "data" chunks.')
+        data_locator = data_locators[0]
 
         self._framerate = fmt.SampleRate
         self._nchannels = fmt.NumChannels
@@ -240,20 +240,30 @@ class JWaveSource(object):
         Return a dictionary of chunks available in the file.
         
         Entries are indexed by chunk name (as a string). Entry values are
-        of type ChunkLocator.
+        lists of type ChunkLocator.
         '''
         return self.locators
 
-    def get_chunk(self, chunk_name):
+    def get_chunk(self, chunk_name, instance=None):
         '''
-        Return the data portion of the chunk named in chunk_name.
+        Return the data portion of the chunk named in chunk_name, and,
+        optionally, a specific instance of that chunk. (Numerically indexed.)
         
         Returns the entire data portion of the identified chunk, or
-        None if the chunk is not present in the file.
+        None if the chunk is not present in the file, or None if there are
+        multiple chunks with that identifier and no instance was provided.
         '''
-        chunk_locator = self.locators.get(chunk_name)
-        if chunk_locator is None:
+        chunk_locators = self.locators.get(chunk_name)
+        if chunk_locators is None:
             return None
+        if len(chunk_locators) > 1:
+            if instance is not None:
+                try:
+                    chunk_locator = chunk_locators[instance]
+                except (TypeError, IndexError):
+                    return None
+        else:
+            chunk_locator = chunk_locators[0]
 
         self._w.seek(chunk_locator.offset, 0)
         data = self._w.read(chunk_locator.header.size)
@@ -359,7 +369,7 @@ class JWaveSink(object):
         if padding_needed:
             self._w.write('\x00')
 
-        self.locators_by_name[name] = ChunkLocator(data_pos, hdr)
+        self.locators_by_name[name].append(ChunkLocator(data_pos, hdr))
 
         return pos
 
