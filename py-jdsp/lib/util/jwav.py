@@ -294,7 +294,7 @@ class JWaveSink(object):
 
         self.total_size = 0
         self.data_allocated = False
-        self.locators_by_name = {}
+        self.locators_by_name = collections.defaultdict(list)
 
         rate = self.rate = int(rate)
         channels = self.channels = int(channels)
