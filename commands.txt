@@ -1,0 +1,23 @@
+trace
+C:\Utils\Python27\python.exe D:\Apollo_Audio_Processing\processing_scripts\deflutter.py timecode -m -F -T 'Version=a1f2a3a759980d7e927a0be4b2dcb18776fa0eef;Operator=jeremy@simon.baymoo.org' -o trace.dat 408-AAA_TRACK-4_16.wav
+
+trace cyg-win
+python /cygdrive/d/Apollo_Audio_Processing/processing_scripts/deflutter.py timecode -m -F -T 'Version=a1f2a3a759980d7e927a0be4b2dcb18776fa0eef;Operator=jeremy@simon.baymoo.org' -o trace.dat 405-AAA_TRACK-4_16.wav
+
+trace mac
+python /Volumes/D/Apollo_Audio_Processing/processing_scripts/deflutter.py timecode -m -F -T 'Version=a1f2a3a759980d7e927a0be4b2dcb18776fa0eef;Operator=jeremy@simon.baymoo.org' -o trace.dat 405-AAA_TRACK-4_16.wav
+
+trace ubuntu
+python /mnt/hgfs/D/Apollo_Audio_Processing/processing_scripts/deflutter.py timecode -m -F -T 'Version=a1f2a3a759980d7e927a0be4b2dcb18776fa0eef;Operator=jeremy@simon.baymoo.org' -o trace.dat 405-AAA_TRACK-4_16.wav
+
+deflutter
+C:\Utils\Python27\python.exe D:\Apollo_Audio_Processing\processing_scripts\deflutter.py trace -T 'Version=a1f2a3a759980d7e927a0be4b2dcb18776fa0eef;Operator=jeremy@simon.baymoo.org' trace.dat 408-AAA_TRACK-4_16.wav D408-AAA_TRACK-4_16.wav
+
+deflutter ubuntu
+python /mnt/hgfs/D/Apollo_Audio_Processing/processing_scripts/deflutter.py trace -T 'Version=a1f2a3a759980d7e927a0be4b2dcb18776fa0eef;Operator=jeremy@simon.baymoo.org' trace.dat 405-AAA_TRACK-4_16.wav ../../defluttered/405_AAA_16/D405-AAA_TRACK-4_16.wav
+
+timecode
+C:\Utils\Python27\python.exe D:\Apollo_Audio_Processing\processing_scripts\irig_b.py -f b -b a13 -a D406-AAA_TRACK-4_16.wav > markers.all.txt
+
+cygwin timecode 1/10th
+sed -n '0~10p' markers.all.txt > markers.csv
