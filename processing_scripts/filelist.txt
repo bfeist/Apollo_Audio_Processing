@@ -1,0 +1,2 @@
+file 'O:/Apollo 13 30-Track/44.1/original/A13_T913_HR2L_10-12-09_18-42-09-P1\A13_T913_HR2L_CH5_10-12-09_18-42-09_-_2015-12-02_Recording.wav'
+file 'O:/Apollo 13 30-Track/44.1/original/A13_T913_HR2L_18-42-09_03-01-54-P2\A13_T913_HR2L_CH5_18-42-09_03-01-54_-_2015-12-02_Recording.wav'

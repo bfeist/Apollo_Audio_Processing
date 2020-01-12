@@ -1,0 +1,1 @@
+FOR %%A IN (%*) DO sox %%A -r 16000 D:\A13_temp\%%~nA.wav rate
