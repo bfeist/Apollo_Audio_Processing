@@ -11,7 +11,12 @@
 # Material is prohibited.
 #
 '''
-Apollo Mission module
+Apollo Mission module - Time handling
+
+This module helps with conversion between mission time formats and ground-based
+time (such as GMT and UTC) for various Apollo missions.
+
+
 '''
 from datetime import datetime
 import collections
@@ -66,6 +71,31 @@ def GMTFromIRIG(basis, f):
         f.seconds
     )
 
+def MissionTimeFromDatetimeGMT(basis, ts):
+    '''
+    Return a mission time (MET/GET) time from a GMT-based datetime.
+
+    basis - The time basis for the mission in question.
+    ts - A datetime.datetime GMT timestamp.
+    
+    Returns (sign, hours, minutes, seconds).
+    
+    sign -- 1 if ET is positive, -1 if negative.
+    hours, minutes, seconds will always be >= 0.
+    
+    NOTES:
+    The Apollo missions referenced "GMT" rather than "UTC". That naming is
+    retained here.
+    '''
+    year_day = ts.timetuple().tm_yday
+    year_seconds = date_to_seconds(
+        (ts.year - basis.year) * 365 + year_day,
+        ts.hour,
+        ts.minute,
+        ts.second
+    )
+    return _MissionTimeFromYS(basis, year_seconds)
+    
 def MissionTimeFromIRIG(basis, f):
     '''
     Return a mission time (MET/GET) time tuple from an IRIG-B frame.
@@ -78,8 +108,15 @@ def MissionTimeFromIRIG(basis, f):
     sign -- 1 if ET is positive, -1 if negative.
     hours, minutes, seconds will always be >= 0.
     '''
-    year_seconds = date_to_seconds(f.years * 365 + f.days, f.hours, f.minutes,
-        f.seconds)
+    year_seconds = date_to_seconds(
+        f.years * 365 + f.days,
+        f.hours,
+        f.minutes,
+        f.seconds
+    )
+    return _MissionTimeFromYS(basis, year_seconds)
+
+def _MissionTimeFromYS(basis, year_seconds):
     mission_seconds = year_seconds - basis.all_balls
     if mission_seconds < 0:
         mission_seconds *= -1
