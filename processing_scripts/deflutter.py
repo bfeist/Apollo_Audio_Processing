@@ -24,7 +24,6 @@ from jdsp.util import DelayBuffer
 from jdsp.io import WaveSink, WaveSource
 from irig_b import IRIGBDecoder, AbsoluteSample
 from collections import namedtuple
-from itertools import izip
 from functools import partial
 stderr = sys.stderr
 
