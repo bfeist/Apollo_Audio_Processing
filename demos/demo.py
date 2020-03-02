@@ -160,11 +160,11 @@ while True:
 
     i += alen
 
-#out = numpy.empty(
-#    (audio_in.channels(), resamplers[0].output_possible(None))
-#)
-#for i, r in enumerate(resamplers):
-#    r.done(out=out[i])
+out = numpy.empty(
+    (audio_in.channels(), resamplers[0].output_possible(None))
+)
+for i, r in enumerate(resamplers):
+    r.done(out=out[i])
 
-#sink.write(out)
+sink.write(out)
 sink.close()
