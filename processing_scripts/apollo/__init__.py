@@ -18,7 +18,7 @@ time (such as GMT and UTC) for various Apollo missions.
 
 
 '''
-from datetime import datetime
+from datetime import datetime, timedelta
 import collections
 
 '''
@@ -36,42 +36,29 @@ MissionTimeBasis = collections.namedtuple('MissionTimeBasis',
     'all_balls year')
 
 '''
-GMT timestamp tuple. Returned from GMTFromIRIG().
-'''
-Timestamp = collections.namedtuple('Timestamp',
-    'year month day hour minute second')
-
-'''
-Elapsed time tuple. Returned from MissionTimeFromIRIG().
+Elapsed time tuple. Returned from ETFromDatetime().
 '''
 ET = collections.namedtuple('ElapsedTime',
     'sign hour minute second')
 
-def GMTFromIRIG(basis, f):
+def DatetimeGMTFromIRIG(basis, f):
     '''
     Return a GMT/UTC timestamp (tuple) from an IRIG-B frame.
     
     basis - The time basis for the mission in question.
     f - An IRIG-B frame.
     
-    Returns (year, month, day, hours, minutes, seconds).
-
-    year -- Common Era based (1 CE == 1 AD)
-    month -- 1-based (January == 1)
-    day -- 1-based
+    Returns a datetime (in UTC zone)
     '''
-    year_ordinal = datetime(basis.year + f.years, 1, 1).toordinal()
+    year_ordinal = datetime(year=basis.year + f.years, month=1, day=1).toordinal()
     date = datetime.fromordinal(year_ordinal + f.days - 1)
-    return Timestamp(
-        date.year,
-        date.month,
-        date.day,
-        f.hours,
-        f.minutes,
-        f.seconds
+    return date.replace(
+        hour=hours,
+        minute=minutes,
+        second=seconds
     )
 
-def MissionTimeFromDatetimeGMT(basis, ts):
+def ETFromDatetimeGMT(basis, dt):
     '''
     Return a mission time (MET/GET) time from a GMT-based datetime.
 
@@ -87,58 +74,27 @@ def MissionTimeFromDatetimeGMT(basis, ts):
     The Apollo missions referenced "GMT" rather than "UTC". That naming is
     retained here.
     '''
-    year_day = ts.timetuple().tm_yday
-    year_seconds = date_to_seconds(
-        (ts.year - basis.year) * 365 + year_day,
-        ts.hour,
-        ts.minute,
-        ts.second
-    )
-    return _MissionTimeFromYS(basis, year_seconds)
-    
-def MissionTimeFromIRIG(basis, f):
+    elapsed = dt - basis.all_balls
+    return _ETFromDelta(elapsed)
+
+def DatetimeGMTFromET(basis, et):
     '''
-    Return a mission time (MET/GET) time tuple from an IRIG-B frame.
-
-    basis - The time basis for the mission in question.
-    f - An IRIG-B frame.
-    
-    Returns (sign, hours, minutes, seconds).
-    
-    sign -- 1 if ET is positive, -1 if negative.
-    hours, minutes, seconds will always be >= 0.
+    Return a datetime object given a mission basis and elapsed time (GET/MET).
     '''
-    year_seconds = date_to_seconds(
-        f.years * 365 + f.days,
-        f.hours,
-        f.minutes,
-        f.seconds
+    delta = timedelta(0, et.hour * 60 + et.minute, et.second)
+    if et.sign == -1:
+        delta *= -1
+    return basis.all_balls + delta
+
+def gmt_str(dt):
+    return '%04d-%02d-%02d %02d:%02d:%02d Z' % (
+        dt.year,
+        dt.month,
+        dt.day,
+        dt.hour,
+        dt.minute,
+        dt.second
     )
-    return _MissionTimeFromYS(basis, year_seconds)
-
-def _MissionTimeFromYS(basis, year_seconds):
-    mission_seconds = year_seconds - basis.all_balls
-    if mission_seconds < 0:
-        mission_seconds *= -1
-        sign = -1
-    else:
-        sign = 1
-    hours = mission_seconds // 3600
-    minutes = (mission_seconds // 60) % 60
-    seconds = mission_seconds % 60
-    return ET(sign, hours, minutes, seconds)
-
-def gmt_from_nasa(h, m, s, basis):
-    mission_seconds = date_to_seconds(0, h, m, s)
-    year_seconds = mission_seconds + basis.all_balls
-    s = year_seconds % 60
-    m = (year_seconds // 60) % 60
-    h = (year_seconds // 3600) % 24
-    d = (year_seconds // 86400) % 365
-    return '%02dd %02dh %02dm %02ds' % (d, h, m, s)
-
-def gmt_str(timestamp):
-    return '%04d-%02d-%02d %02d:%02d:%02d Z' % timestamp
 
 def met_str(et):
     neg = '-' if et.sign == -1 else ''
@@ -156,7 +112,7 @@ TimeBases = {
     # That is day #197 (one-based)
     #
     'a11' : MissionTimeBasis(
-        all_balls=date_to_seconds(197, 13, 32, 0),
+        all_balls=datetime(year=1969,month=7,day=16,hour=13,minute=32)
         year=1969
     ),
 
@@ -167,7 +123,7 @@ TimeBases = {
     # That is day #101 (one-based)
     #
     'a13' : MissionTimeBasis(
-        all_balls=date_to_seconds(101, 19, 13, 0),
+        all_balls=datetime(year=1970,month=4,day=11,hour=19,minute=13)
         year=1970
     )
 }

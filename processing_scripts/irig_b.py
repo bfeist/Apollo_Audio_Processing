@@ -18,7 +18,7 @@ from numpy import rint, zeros, empty
 import collections
 import functools
 import datetime
-from apollo import TimeBases, GMTFromIRIG, MissionTimeFromIRIG
+from apollo import TimeBases, DatetimeGMTFromIRIG, ETFromDatetimeGMT
 from apollo import MissionTimeBasis
 from apollo import met_str, gmt_str
 # Python 2 & 3 compatible way to get izip()
@@ -431,8 +431,9 @@ def frame_filter_year_zero(b, rate, f):
     return f.years == 0
 
 def frame_dump_audacity_with_met(b, rate, f):
-    mission = met_str(MissionTimeFromIRIG(b, f))
-    frame = gmt_str(GMTFromIRIG(b, f))
+    dt = DatetimeGMTFromIRIG(b, f)
+    mission = met_str(ETFromDatetimeGMT(b, dt))
+    frame = gmt_str(dt)
     t = float(f.absolute_sample.i) / rate
     t += f.absolute_sample.f / rate
     tm = '%f' % t
@@ -440,15 +441,17 @@ def frame_dump_audacity_with_met(b, rate, f):
     print(frame)
 
 def frame_dump_audacity(b, rate, f):
-    frame = gmt_str(GMTFromIRIG(b, f))
+    dt = DatetimeGMTFromIRIG(b, f)
+    frame = gmt_str(dt)
     t = float(f.absolute_sample.i) / rate
     t += f.absolute_sample.f / rate
     tm = '%f' % t
     print(tm, tm, frame, sep='\t')
 
 def frame_dump_plain(b, rate, f):
-    mission = met_str(MissionTimeFromIRIG(b, f))
-    frame = gmt_str(GMTFromIRIG(b, f))
+    dt = DatetimeGMTFromIRIG(b, f)
+    mission = met_str(ETFromDatetimeGMT(b, dt))
+    frame = gmt_str(dt)
     print(mission, frame, '%09d' % f.absolute_sample.i)
 
 def frame_dump_raw(b, rate, f):
@@ -459,8 +462,9 @@ def start_dump_adobe(b, rate):
         sep='\t')
 
 def frame_dump_adobe(b, rate, f):
-    met = met_str(MissionTimeFromIRIG(b, f))
-    gmt = gmt_str(GMTFromIRIG(b, f))
+    dt = DatetimeGMTFromIRIG(b, f)
+    met = met_str(ETFromDatetimeGMT(b, dt))
+    gmt = gmt_str(dt)
     sec = float(f.absolute_sample.i) / rate
     sec += float(f.absolute_sample.f) / rate
     h = int(sec / 3600.0)
