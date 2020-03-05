@@ -30,7 +30,7 @@ A mission clock is a reckoning timescale, often abbreviated as MET
 Generally, the start of a mission's MET is planned far in advance. In some
 circumstances, however, the mission doesn't start on time (due to weather,
 for example), so another scale known as GET (Ground Elapsed Time) is used
-Each mission has its officially planned start time
+instead.
 '''
 MissionTimeBasis = collections.namedtuple('MissionTimeBasis',
     'all_balls year')
@@ -81,7 +81,7 @@ def DatetimeGMTFromET(basis, et):
     '''
     Return a datetime object given a mission basis and elapsed time (GET/MET).
     '''
-    delta = timedelta(0, et.hour * 60 + et.minute, et.second)
+    delta = timedelta(0, et.hour * 3600 + et.minute * 60 + et.second)
     if et.sign == -1:
         delta *= -1
     return basis.all_balls + delta
@@ -100,6 +100,21 @@ def met_str(et):
     neg = '-' if et.sign == -1 else ''
     return '%s%03d:%02d:%02d' % (neg, et.hour, et.minute, et.second)
     
+def _ETFromDelta(timedelta):
+    '''
+    Given a datetime.timedelta, return an Elapsed Time tuple.
+    '''
+    total_seconds = timedelta.total_seconds()
+    if total_seconds < 0:
+        sign = -1
+        total_seconds *= -1
+    else:
+        sign = 1
+    hours = int(total_seconds) // 3600
+    minutes = (int(total_seconds) // 60) % 60
+    seconds = int(total_seconds) % 60
+    return ET(sign, hours, minutes, seconds)
+
 def date_to_seconds(day, hour, minute, second):
     return ((((day * 24) + hour) * 60 + minute) * 60) + second
 
@@ -112,7 +127,7 @@ TimeBases = {
     # That is day #197 (one-based)
     #
     'a11' : MissionTimeBasis(
-        all_balls=datetime(year=1969,month=7,day=16,hour=13,minute=32)
+        all_balls=datetime(year=1969,month=7,day=16,hour=13,minute=32),
         year=1969
     ),
 
@@ -123,7 +138,7 @@ TimeBases = {
     # That is day #101 (one-based)
     #
     'a13' : MissionTimeBasis(
-        all_balls=datetime(year=1970,month=4,day=11,hour=19,minute=13)
+        all_balls=datetime(year=1970,month=4,day=11,hour=19,minute=13),
         year=1970
     )
 }
