@@ -71,3 +71,9 @@ class WaveSource(object):
             samples = samples / float(0x80000000)
 
         return samples
+
+    def set_position(self, frame_count):
+        '''
+        Seek to a specific frame position from the start of the file.
+        '''
+        self._w.setpos(frame_count)
