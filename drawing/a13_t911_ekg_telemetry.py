@@ -24,10 +24,11 @@ A "ZPN" is a "one impedance pneumograph", or a spring-like device that
 measures an astronaut's chest movements, and hence, their breathing patterns.
 
 '''
-#from jdsp.blocks import ToneFollower, RationalResampler
-#from jdsp.io import WaveSource
-
+from __future__ import print_function
+from jdsp.blocks import ToneFollower, RationalResampler
+from jdsp.io import WaveSource
 from collections import namedtuple
+import json
 
 FMTelemetryChannel = namedtuple('FMTelemetryChannel',
     'name frequency bandwidth lpf')
@@ -36,26 +37,118 @@ FMTelemetryChannel = namedtuple('FMTelemetryChannel',
 # These frequencies were worked out by hand by observing spectrograms
 # of the audio snippet we have.
 #
-configuration = [
-    FMTelemetryChannel(name='CMP ZPN',frequency=550.0,bandwidth=100.0,lpf=30),
-    FMTelemetryChannel(name='CMDR ZPN',frequency=725.0,bandwidth=100.0,lpf=30),
-    FMTelemetryChannel(name='LMP ZPN',frequency=950.0,bandwidth=100.0,lpf=30),
-    FMTelemetryChannel(name='CMDR EKG',frequency=1300.0,bandwidth=None,lpf=60),
-    FMTelemetryChannel(name='CMP EKG',frequency=1700.0,bandwidth=None,lpf=60),
-    FMTelemetryChannel(name='LMP EKG',frequency=2300.0,bandwidth=None,lpf=60)
+channels = [
+    FMTelemetryChannel(name='CMP ZPN',frequency=550.0,bandwidth=100.0,lpf=15),
+    FMTelemetryChannel(name='CMDR ZPN',frequency=725.0,bandwidth=100.0,lpf=15),
+    FMTelemetryChannel(name='LMP ZPN',frequency=950.0,bandwidth=100.0,lpf=15),
+    FMTelemetryChannel(name='CMDR EKG',frequency=1300.0,bandwidth=200.0,lpf=15),
+    FMTelemetryChannel(name='CMP EKG',frequency=1700.0,bandwidth=200.0,lpf=15),
+    FMTelemetryChannel(name='LMP EKG',frequency=2300.0,bandwidth=250.0,lpf=15)
 ]
 
-def main(args):
+def main(sys_args):
+    import sys
     from argparse import ArgumentParser
 
     parser = ArgumentParser(
         description='Process Apollo biomed telemetry')
     parser.add_argument('--skip', '-s', metavar='<skip-seconds>', type=float,
+        dest='skip',
         help='Point at which to start processing, in seconds (floating point).')
+    parser.add_argument('--duration', '-d', metavar='<duration-seconds>',
+        type=float, dest='duration', default=60.0,
+        help='Number of seconds to process (floating point, default 60).')
     parser.add_argument('input', metavar='<input-wav>', type=str,
                         help='Audio file for input.')
+    parser.add_argument('rate', metavar='<output-rate>', type=float, default=60,
+        nargs='?', help='Output sample rate (Hz, float, default=60).'
+    )
 
-    parser.parse_args(args)
+    args = parser.parse_args(sys_args[1:])
+
+    input_source = WaveSource(args.input)
+    if input_source.channels() != 1:
+        print("Input must be monophonic (single channel).", file=sys.stderr)
+        sys.exit(1)
+
+    input_rate = input_source.rate()
+    output_rate = args.rate
+    process_frames = int(output_rate * args.duration)
+
+    if args.skip is not None:
+        skip_frames = input_rate * args.skip
+        input_source.set_position(skip_frames)
+
+    #
+    # Configure each tone follower for the tone it is supposed to follow.
+    #
+    followers = [
+        ToneFollower(input_rate, c.frequency, c.bandwidth, c.lpf)
+        for c in channels
+    ]
+
+    #
+    # Set up a rational resampler to bring the output down to the rate
+    # being asked.
+    #
+    resamplers = [
+        RationalResampler(int(input_rate), int(output_rate), quality=9000)
+        for c in channels
+    ]
+
+    #
+    # Compute the overall delay of the whole system.
+    #
+    overall_delay_input = resamplers[0].delay() + followers[0].delay()
+    overall_delay_output = overall_delay_input / input_rate * output_rate
+    delayed = 0
+    processed = 0
+
+    channel_data = [ [] for channel in channels ]
+
+    block_size = 1000
+    while True:
+        data = input_source.read(block_size)
+        if data is None:
+            break
+
+        frames = data[0]
+
+        outputs = [
+            resampler.process(follower.process(frames))
+            for follower, resampler in zip(followers, resamplers)
+        ]
+
+        output_frames = len(outputs[0])
+
+        #
+        # Determine if the processing delay has been reached.
+        #
+        if delayed < overall_delay_output:
+            available_here = (delayed + output_frames) - overall_delay_output
+            delayed += output_frames
+            if available_here > 0:
+                outputs = [ data[-available_here:] for data in outputs ]
+                output_frames = available_here
+            else:
+                # Keep processing, haven't reached start output.
+                continue
+
+        for l, o in zip(channel_data, outputs):
+            l += list(o)
+
+        processed += output_frames
+        if processed > process_frames:
+            break
+
+    #
+    # Assemble a data dictionary with the results.
+    #
+    d = {}
+    for data, meta in zip(channel_data, channels):
+        d[meta.name] = data
+
+    print(json.dumps(d))
 
 if __name__ == '__main__':
     import sys
