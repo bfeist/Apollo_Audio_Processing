@@ -18,7 +18,9 @@ function setupCanvas(canvas, width, height) {
     return ctx;
 }
 
-const scenario = "new";
+const GET_at_frame_0 = "32h-37m-00.850s or 32:37:00:51 @ 60fps";
+
+const scenario = "classic";
 
 var x;
 var channel_style;
@@ -26,7 +28,7 @@ var depth;
 
 if (scenario == "classic") {
     x = 10;
-    depth = 10;
+    depth = 20;
     channel_style = {
         zero_offset : 1.0,
         clip_min : 0.9,
@@ -43,7 +45,7 @@ if (scenario == "classic") {
         zero_offset : 1.0,
         clip_min : 0.9,
         clip_max : 1.1,
-        fade : true,
+        fade : false,
         color_rgb : [ 0, 255, 0 ],
         draw_zero_line : false
     };
@@ -66,6 +68,10 @@ let CMP_EKG_display = new WaveBuffer(depth, 500, CMP_EKG_source, graph, channel_
 let CMDR_ZPN_display = new WaveBuffer(depth, 500, CMDR_ZPN_source, graph, channel_style);
 let LMP_ZPN_display = new WaveBuffer(depth, 500, LMP_ZPN_source, graph, channel_style);
 let CMP_ZPN_display = new WaveBuffer(depth, 500, CMP_ZPN_source, graph, channel_style);
+let marker = new FrameLabel(CMDR_EKG_display, graph,
+    { 0 : GET_at_frame_0 },
+    { x : 10, y : 20, fill_style : "white" },
+);
 
 CMDR_EKG_display.x = x;
 CMDR_EKG_display.y = 50;
@@ -106,6 +112,7 @@ function animate(){
     CMDR_ZPN_display.display(brush);
     LMP_ZPN_display.display(brush);
     CMP_ZPN_display.display(brush);
+    marker.display(brush);
 }
 
 function run_animation(filesystem) {
