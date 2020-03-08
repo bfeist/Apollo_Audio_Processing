@@ -28,6 +28,7 @@ from __future__ import print_function
 from jdsp.blocks import ToneFollower, RationalResampler
 from jdsp.io import WaveSource
 from collections import namedtuple
+from numpy import around
 import json
 
 FMTelemetryChannel = namedtuple('FMTelemetryChannel',
@@ -43,7 +44,7 @@ channels = [
     FMTelemetryChannel(name='LMP ZPN',frequency=950.0,bandwidth=100.0,lpf=15),
     FMTelemetryChannel(name='CMDR EKG',frequency=1300.0,bandwidth=200.0,lpf=15),
     FMTelemetryChannel(name='CMP EKG',frequency=1700.0,bandwidth=200.0,lpf=15),
-    FMTelemetryChannel(name='LMP EKG',frequency=2300.0,bandwidth=250.0,lpf=15)
+    FMTelemetryChannel(name='LMP EKG',frequency=2300.0,bandwidth=200.0,lpf=15)
 ]
 
 def main(sys_args):
@@ -135,7 +136,7 @@ def main(sys_args):
                 continue
 
         for l, o in zip(channel_data, outputs):
-            l += list(o)
+            l += list(around(o, decimals=5))
 
         processed += output_frames
         if processed > process_frames:
