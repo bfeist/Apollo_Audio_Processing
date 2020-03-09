@@ -19,6 +19,7 @@ class BPMMeter extends SignalNode {
         this.mTriggerLevel = options.trigger_level || -0.05;
         this.mFontStyle = options.font || "12pt Courier";
         this.mFillStyle = options.fill_style || "black";
+        this.mTextAlign = options.text_align || "start";
 
         this.mBeats = [];
         this.mSamplesSinceLastBeat = 0;
@@ -107,6 +108,7 @@ class BPMMeter extends SignalNode {
             brush.translate(this.x, this.y);
             brush.font = this.mFontStyle;
             brush.fillStyle = this.mFillStyle;
+            brush.textAlign = this.mTextAlign;
             brush.fillText(this.mBPM.toFixed(0), 0, 0);
             brush.restore();
         }
