@@ -25,12 +25,22 @@ class BPMMeter extends SignalNode {
         this.mSamplesSinceLastBeat = 0;
         this.mHaveAverage = false;
         this.mBPM = 0.0;
+        this.mDisplayBPM = 0.0;
+        this.mSamplesSinceLastSecond = -1;
         this.mLevel = 0.0;
 
         graph.connect(src, this);
     };
     
     tick() {
+        //
+        // Make any display updates needed.
+        //
+        this.mSamplesSinceLastSecond += 1;
+        if (this.mSamplesSinceLastSecond >= this.mSampleRate) {
+            this.mDisplayBPM = this.mBPM;
+            this.mSamplesSinceLastSecond = 0;
+        }
         //
         // Clip and translate incoming data.
         //
@@ -94,7 +104,7 @@ class BPMMeter extends SignalNode {
         }
         this.mBeats.push(bpm);
 
-        if (this.mBeats.length >= this.mAveragingDepth) {
+        if (this.mBeats.length) {
             this.mHaveAverage = true;
             this.mBPM = this.mBeats.reduce((a,b) => a + b, 0) / this.mBeats.length;
         }
@@ -109,7 +119,7 @@ class BPMMeter extends SignalNode {
             brush.font = this.mFontStyle;
             brush.fillStyle = this.mFillStyle;
             brush.textAlign = this.mTextAlign;
-            brush.fillText(this.mBPM.toFixed(0), 0, 0);
+            brush.fillText(this.mDisplayBPM.toFixed(0), 0, 0);
             brush.restore();
         }
     };
