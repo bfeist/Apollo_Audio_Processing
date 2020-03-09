@@ -21,7 +21,6 @@ function setupCanvas(canvas, width, height) {
 
 const GET_at_frame_0 = "32h-37m-00.850s or 32:37:00:51 @ 60fps";
 
-const scenario = "classic";
 const sampleRate = 50;
 const width = 1440;
 const height = 1080;
@@ -50,7 +49,7 @@ const channel_style = {
 // Base styling for all heart rate monitors.
 //
 const bpm_meter_options = {
-    font : "bold " + ((width / 1440)*44) + "pt courier",
+    font : "bold " + ((width / 1440)*42) + "pt courier",
     zero_offset : 1.0,
     trigger_level : -0.025,
     averaging_depth : 15,
@@ -61,11 +60,11 @@ const bpm_meter_options = {
 // Options for static text labels.
 //
 const static_text_options = {
-    font : ((width / 1440) * 30) + "pt courier",
+    font : ((width / 1440) * 25) + "pt courier",
     text_align : "end"
 };
 unit_text_options = {
-    font : ((width /1440)*30) + "pt courier",
+    font : ((width /1440)*25) + "pt courier",
     text_align : "end"
 };
 
@@ -89,12 +88,12 @@ const global_options = {
     ekg_x_scale : ekg_width / channel_style.cycle_size,
     ekg_y_scale : (width / 1440) * 1200,
     zpn_y_scale : (width / 1440) * 800,
-    ekg_lane_height : (width / 1440) * 175,
-    ekg_lane_start :  (width / 1440) * 120,
-    ekg_bpm_meter_x : width - (width/1440) * 175,
+    ekg_lane_height : (width / 1440) * 130,
+    ekg_lane_start :  (width / 1440) * 200,
+    ekg_bpm_meter_x : width - (width/1440) * 165,
     ekg_label_x : width - (width / 1440) * 90,
-    role_adj_y : -(width / 1440) * 47,
-    name_adj_y : (width / 1440) * 45
+    role_adj_y : -(width / 1440) * 37,
+    name_adj_y : (width / 1440) * 37
 };
 
 let CMDR_EKG_source = new ArrayWaveSource(data['CMDR EKG']);
@@ -154,7 +153,7 @@ function setup_ZPN(slot, role, name, source, graph, globals, zpn_opts,
     var ZPN_graph = new WaveBuffer(
         globals.ekg_depth,
         globals.ekg_x_scale,
-        globals.ekg_y_scale,
+        globals.ekg_y_scale * .8,
         source,
         graph,
         zpn_opts
@@ -192,8 +191,8 @@ CMDR_bpm_options = Object.assign({}, bpm_meter_options);
 CMDR_unit_options = Object.assign({}, unit_text_options);
 CMDR_ekg_options.color_rgb = [ 255, 255, 0];
 CMDR_bpm_options.fill_style = "#ffff00";
-CMDR_unit_options.fill_style = "#808000";
-setup_EKG(0, "CMDR", "Lovell", CMDR_EKG_source, graph, global_options,
+CMDR_unit_options.fill_style = "#a0a000";
+setup_EKG(0, "CDR", "Lovell", CMDR_EKG_source, graph, global_options,
     CMDR_ekg_options, CMDR_bpm_options, CMDR_unit_options);
 
 LMP_ekg_options = Object.assign({}, channel_style);
@@ -201,7 +200,7 @@ LMP_bpm_options = Object.assign({}, bpm_meter_options);
 LMP_unit_options = Object.assign({}, unit_text_options);
 LMP_ekg_options.color_rgb = [ 0, 255, 255];
 LMP_bpm_options.fill_style = "#00ffff";
-LMP_unit_options.fill_style = "#008080";
+LMP_unit_options.fill_style = "#00a0a0";
 setup_EKG(1, "LMP", "Haise", LMP_EKG_source, graph, global_options,
     LMP_ekg_options, LMP_bpm_options, LMP_unit_options);
 
@@ -210,11 +209,11 @@ CMP_bpm_options = Object.assign({}, bpm_meter_options);
 CMP_unit_options = Object.assign({}, unit_text_options);
 CMP_ekg_options.color_rgb = [ 255, 0, 255];
 CMP_bpm_options.fill_style = "#ff00ff";
-CMP_unit_options.fill_style = "#800080";
+CMP_unit_options.fill_style = "#a000a0";
 setup_EKG(2, "CMP", "Swigert", CMP_EKG_source, graph, global_options,
     CMP_ekg_options, CMP_bpm_options, CMP_unit_options);
 
-setup_ZPN(3, "CMDR", "Lovell", CMDR_ZPN_source, graph, global_options,
+setup_ZPN(3, "CDR", "Lovell", CMDR_ZPN_source, graph, global_options,
     CMDR_ekg_options, CMDR_unit_options);
 
 setup_ZPN(4, "LMP", "Haise", LMP_ZPN_source, graph, global_options,
@@ -254,4 +253,4 @@ function run_animation(filesystem) {
     }
 }
 
-//animate();
+animate();
