@@ -19,11 +19,16 @@ function setupCanvas(canvas, width, height) {
     return ctx;
 }
 
-const GET_at_frame_0 = "32h-37m-00.850s or 32:37:00:51 @ 60fps";
-
-const sampleRate = 50;
+const sampleRate = data['sample_rate'];
 const width = 1440;
 const height = 1080;
+
+//
+// TODO: Get this information from the data, when it is
+// available.
+//
+const GET_at_frame_0 =
+    "32h-37m-00.850s or 32:37:00:51 @" + sampleRate + " fps";
 
 //
 // Base styling for all telemetry graphs.
@@ -96,12 +101,13 @@ const global_options = {
     name_adj_y : (width / 1440) * 37
 };
 
-let CMDR_EKG_source = new ArrayWaveSource(data['CMDR EKG']);
-let LMP_EKG_source = new ArrayWaveSource(data['LMP EKG']);
-let CMP_EKG_source = new ArrayWaveSource(data['CMP EKG']);
-let CMDR_ZPN_source = new ArrayWaveSource(data['CMDR ZPN']);
-let LMP_ZPN_source = new ArrayWaveSource(data['LMP ZPN']);
-let CMP_ZPN_source = new ArrayWaveSource(data['CMP ZPN']);
+const c = data['channels'];
+let CMDR_EKG_source = new ArrayWaveSource(c['CMDR EKG']);
+let LMP_EKG_source = new ArrayWaveSource(c['LMP EKG']);
+let CMP_EKG_source = new ArrayWaveSource(c['CMP EKG']);
+let CMDR_ZPN_source = new ArrayWaveSource(c['CMDR ZPN']);
+let LMP_ZPN_source = new ArrayWaveSource(c['LMP ZPN']);
+let CMP_ZPN_source = new ArrayWaveSource(c['CMP ZPN']);
 
 let graph = new SignalGraph();
 let animated_elements = [];
@@ -257,7 +263,7 @@ function render_animation_to_file() {
      //
      // Determine how many frames of data we have.
      //
-     var total_frames = data['CMDR EKG'].length;
+     var total_frames = c['CMDR EKG'].length;
 
     capturer.start();
     for (i = 0; i < total_frames; i++) {

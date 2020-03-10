@@ -28,7 +28,7 @@ from __future__ import print_function
 from jdsp.blocks import ToneFollower, ScalableResampler
 from jdsp.io import WaveSource
 from collections import namedtuple
-from numpy import around, cumsum, ones
+from numpy import around, cumsum, ones, rint
 import json
 
 FMTelemetryChannel = namedtuple('FMTelemetryChannel',
@@ -74,12 +74,13 @@ def main(sys_args):
 
     input_rate = input_source.rate()
     output_rate = args.rate
-    print("Out rate", output_rate, file=sys.stderr)
     process_frames = int(output_rate * args.duration)
 
     if args.skip is not None:
         skip_frames = input_rate * args.skip
         input_source.set_position(skip_frames)
+    else:
+        skip_frames = 0
 
     #
     # Configure each tone follower for the tone it is supposed to follow.
@@ -90,8 +91,8 @@ def main(sys_args):
     ]
 
     #
-    # Set up a rational resampler to bring the output down to the rate
-    # being asked.
+    # Set up a group of rational resamplers to bring the outputs of each
+    # channel down to the rate being asked.
     #
     resamplers = [
         ScalableResampler(int(input_rate), int(output_rate), speed_quantum=320, quality=9000)
@@ -102,8 +103,29 @@ def main(sys_args):
     # Compute the overall delay of the whole system.
     #
     overall_delay_input = resamplers[0].delay() + followers[0].delay()
-    overall_delay_output = overall_delay_input / input_rate * output_rate
-    delayed = 0
+    overall_delay_output = float(overall_delay_input) / float(input_rate) * output_rate
+
+    #
+    # Find the sample number in the output which will be
+    # closest to the processed input.
+    #
+    output_start_offset = rint(overall_delay_output)
+
+    #
+    # Compute the error that results from choosing this particular
+    # sample.
+    #
+    output_start_res = overall_delay_output - output_start_offset
+    output_start_res_s = output_start_res / float(output_rate)
+
+    #
+    # Compute the input start time that this output sample
+    # actually represents.
+    #
+    output_input_time_s = float(skip_frames) / float(input_rate) - \
+        output_start_res_s 
+
+    output_offset = 0
     processed = 0
 
     channel_data = [ [] for channel in channels ]
@@ -116,28 +138,64 @@ def main(sys_args):
 
         frames = data[0]
 
+        #
+        # Run each tone decoder on the input block.
+        #
         followed = [ follower.process(frames) for follower in followers ]
 
+        #
+        # Now run the downsampler on the output of each tone decoder.
+        #
         outputs = [
             resampler.process(frames, cumsum(ones(len(frames))))
             for frames, resampler in zip(followed, resamplers)
         ]
 
+        #
+        # Due to the deterministic algorithm of the resampler, the number
+        # of samples produced by one resampler should be equal to the
+        # number of samples produced by any other. So check the output
+        # of the first resampler to determine how many output samples
+        # we have produced in each channel.
+        #
         output_frames = len(outputs[0])
 
         #
         # Determine if the processing delay has been reached.
         #
-        if delayed < overall_delay_output:
-            available_here = (delayed + output_frames) - overall_delay_output
-            delayed += output_frames
+        if output_offset < output_start_offset:
+            #
+            # Still need to eat more output samples until the overall
+            # processing delay has been removed.
+            #
+            available_here = (output_offset + output_frames) - output_start_offset
+            output_offset += output_frames
+
+            #
+            # It's possible that the delay was just satisfied in the
+            # statements above. Is there input left in this output
+            # buffer?
+            #
             if available_here > 0:
+                #
+                # Yes, we've satisfied the delay by dropping samples from
+                # this buffer. The remaining samples in this buffer represent
+                # the start of the output to use.
+                #
                 outputs = [ data[-available_here:] for data in outputs ]
                 output_frames = available_here
             else:
-                # Keep processing, haven't reached start output.
+                #
+                # No, we haven't satisfied the delay yet, even after dropping
+                # all of the samples in this output buffer. Keep processing.
+                #
                 continue
 
+        #
+        # Take the output channels one at a time, reformat their data
+        # to conform with JSON requirements, and concatenate them onto
+        # the result set we are producing.
+        #
         for l, o in zip(channel_data, outputs):
             l += list(around(o, decimals=5))
 
@@ -148,11 +206,23 @@ def main(sys_args):
     #
     # Assemble a data dictionary with the results.
     #
-    d = {}
+    d = dict()
     for data, meta in zip(channel_data, channels):
         d[meta.name] = data
 
-    print(json.dumps(d))
+    #
+    # Assemble the full result set by adding in
+    # meta-data.
+    #
+    result = {
+        'sample_rate' : output_rate,
+        'source_start_time_s' : 0 if args.skip is None else float(args.skip),
+        'output_source_start_time_s' : output_input_time_s,
+        'source_file' : args.input,
+        'channels' : d
+    }
+
+    print(json.dumps(result))
 
 if __name__ == '__main__':
     import sys
