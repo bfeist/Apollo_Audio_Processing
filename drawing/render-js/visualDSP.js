@@ -232,8 +232,7 @@ graph.finalize();
 const canvas = document.querySelector('canvas');
 const brush = setupCanvas(canvas, window.innerWidth, window.innerHeight);
 
-function animate(){
-    requestAnimationFrame(animate);
+function animate_one_frame(brush) {
     graph.advance();
 
     brush.save();
@@ -245,12 +244,23 @@ function animate(){
     marker.display(brush);
 }
 
-function run_animation(filesystem) {
+function run_animation() {
+    // Create a capturer that exports PNG images in a TAR file
+    var capturer = new CCapture({
+        format: 'webm',
+        framerate: sampleRate,
+        verbose: true
+     });
+
+    capturer.start();
+    var total_frames = data['CMDR EKG'].length;
+    //var total_frames = 50 * 10;
     for (i = 0; i < total_frames; i++) {
-        animate();
-        blob = get_animation_frame();
-        write_image(i, blob);
+        animate_one_frame(brush);
+        capturer.capture(canvas);
     }
+    capturer.stop();
+    capturer.save();
 }
 
-animate();
+//run_animation();

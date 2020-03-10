@@ -25,10 +25,10 @@ measures an astronaut's chest movements, and hence, their breathing patterns.
 
 '''
 from __future__ import print_function
-from jdsp.blocks import ToneFollower, RationalResampler
+from jdsp.blocks import ToneFollower, ScalableResampler
 from jdsp.io import WaveSource
 from collections import namedtuple
-from numpy import around
+from numpy import around, cumsum, ones
 import json
 
 FMTelemetryChannel = namedtuple('FMTelemetryChannel',
@@ -74,6 +74,7 @@ def main(sys_args):
 
     input_rate = input_source.rate()
     output_rate = args.rate
+    print("Out rate", output_rate, file=sys.stderr)
     process_frames = int(output_rate * args.duration)
 
     if args.skip is not None:
@@ -93,7 +94,7 @@ def main(sys_args):
     # being asked.
     #
     resamplers = [
-        RationalResampler(int(input_rate), int(output_rate), quality=9000)
+        ScalableResampler(int(input_rate), int(output_rate), speed_quantum=320, quality=9000)
         for c in channels
     ]
 
@@ -115,9 +116,11 @@ def main(sys_args):
 
         frames = data[0]
 
+        followed = [ follower.process(frames) for follower in followers ]
+
         outputs = [
-            resampler.process(follower.process(frames))
-            for follower, resampler in zip(followers, resamplers)
+            resampler.process(frames, cumsum(ones(len(frames))))
+            for frames, resampler in zip(followed, resamplers)
         ]
 
         output_frames = len(outputs[0])
