@@ -244,17 +244,22 @@ function animate_one_frame(brush) {
     marker.display(brush);
 }
 
-function run_animation() {
-    // Create a capturer that exports PNG images in a TAR file
+function render_animation_to_file() {
+    //
+    // Create a capturer that exports to WebM format.
+    //
     var capturer = new CCapture({
         format: 'webm',
         framerate: sampleRate,
         verbose: true
      });
 
+     //
+     // Determine how many frames of data we have.
+     //
+     var total_frames = data['CMDR EKG'].length;
+
     capturer.start();
-    var total_frames = data['CMDR EKG'].length;
-    //var total_frames = 50 * 10;
     for (i = 0; i < total_frames; i++) {
         animate_one_frame(brush);
         capturer.capture(canvas);
@@ -263,4 +268,7 @@ function run_animation() {
     capturer.save();
 }
 
-//run_animation();
+function render_animation_to_window() {
+    requestAnimationFrame(render_animation_to_window);
+    animate_one_frame(brush);
+}
