@@ -479,9 +479,11 @@ def main(args):
     def usage(prog):
       msg = \
           'usage: {prog} [-i] [-s <skipsec>] [-F] [-a|-p|-l|-r] [-f <filter>]'\
-          '[-b <base>|-y <year>] ' \
+          '[-b <base>|-y <year>] [-c <chan>]' \
           '<wav-file>\n' \
           '  Options for input\n' \
+          '-c  Analyze audio in channel <chan> (zero-based) when processing\n'\
+          '    multi-channel files. (Default: 0)\n' \
           '-s  Skip <skipsec> seconds of audio before processing.\n' \
           '    Can also be negative, in which case decoding will start\n' \
           '    -<skipsec> seconds before the end of the file.\n' \
@@ -520,16 +522,19 @@ def main(args):
     do_skip = False
     hp_filter = False
     frame_filter_expr = None
+    channel = 0
     styles = set()
 
     apollo_basis_requested = False
     year_basis_requested = False
     basis_name = 'a11'
 
-    opts, args = getopt.getopt(args, 'as:Frpilhb:f:y:')
+    opts, args = getopt.getopt(args, 'ac:s:Frpilhb:f:y:')
     for opt, val in opts:
         if opt == '-i':
             invert = True
+        elif opt == '-c':
+            channel = int(val)
         elif opt == '-l':
             styles.add('audacity')
         elif opt == '-a':
@@ -589,8 +594,8 @@ def main(args):
     total_samples = src._w.getnframes()
     total_secs = total_samples / rate
 
-    if channels != 1:
-          error('Only mono for now')
+    if channel < 0 or channel >= channels:
+          error('Requested channel unavailable')
 
     if do_skip:
         if skip_secs < 0.0:
@@ -677,7 +682,7 @@ def main(args):
         if frames is None:
             break
 
-        samples = frames[0]
+        samples = frames[channel]
         if invert:
             samples = samples * -1.0
         decoder_process(samples)
