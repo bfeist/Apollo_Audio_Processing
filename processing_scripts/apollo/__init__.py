@@ -53,9 +53,9 @@ def DatetimeGMTFromIRIG(basis, f):
     year_ordinal = datetime(year=basis.year + f.years, month=1, day=1).toordinal()
     date = datetime.fromordinal(year_ordinal + f.days - 1)
     return date.replace(
-        hour=hours,
-        minute=minutes,
-        second=seconds
+        hour=f.hours,
+        minute=f.minutes,
+        second=f.seconds
     )
 
 def ETFromDatetimeGMT(basis, dt):

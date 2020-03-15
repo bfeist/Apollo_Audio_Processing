@@ -569,7 +569,7 @@ def main(args):
 
     if year_basis_requested:
         mission_basis = MissionTimeBasis(
-            all_balls=0,
+            all_balls=datetime.datetime(year=year_base, month=1, day=1),
             year=year_base
         )
     else:
