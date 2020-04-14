@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Apollo 13 Astronaut Biomedical Telemetry</title>
+</head>
+<body>
+    <canvas id="canvas" width="1440px" height="1080px"></canvas>
+    <script src="CCapture.all.min.js"></script>
+    <script src="DSP/SignalNode.js"></script>
+    <script src="DSP/WaveBuffer.js"></script>
+    <script src="DSP/ArrayWaveSource.js"></script>
+    <script src="DSP/SignalGraph.js"></script>
+    <script src="DSP/FrameLabel.js"></script>
+    <script src="DSP/BPMMeter.js"></script>
+    <script src="DSP/StaticText.js"></script>
+    <script src="ekg_data.json"></script>
+    <script src="visualDSP.js"></script>
+    <!--
+      -- This next statement will run the animation under
+      -- a context in which frames will be saved to a
+      -- file, using the CCapture framework.
+      -->
+    <script>render_animation_to_file();</script>
+</body>
+</html>

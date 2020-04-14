@@ -213,6 +213,7 @@ class JWaveSource(object):
         elif frame_position < 0:
             raise InvalidPosition('Position is negative.')
 
+        frame_position = int(frame_position)
         self._w.seek(self.data_offset + frame_position * self._framesize, 0)
         self._frameposition = frame_position
 
