@@ -458,6 +458,36 @@ def frame_dump_plain(b, rate, f):
     frame = gmt_str(dt)
     print(mission, frame, '%09d' % f.absolute_sample.i)
 
+def seconds_to_hhMMssMSS(t):
+    hh = int(t / 3600.0)
+    mm = int(t / 60.0) % 60
+    ss = int(t) % 60
+    ms = int((t - int(t)) * 1000)
+    return (hh, mm, ss, ms)
+
+SRT_frame = 1
+def frame_dump_srt(b, rate, f):
+    global SRT_frame
+    try:
+        dt = DatetimeGMTFromIRIG(b, f)
+    except ValueError:
+        # Bad decode, just skip it
+        return
+    mission = met_str(ETFromDatetimeGMT(b, dt))
+    frame = gmt_str(dt)
+    t = float(f.absolute_sample.i) / rate
+    t += f.absolute_sample.f / rate
+    (hh, mm, ss, ms) = seconds_to_hhMMssMSS(t)
+    (hh2, mm2, ss2, ms2) = seconds_to_hhMMssMSS(t + 0.9)
+    
+    print(SRT_frame)
+    print('%02d:%02d:%02d,%03d --> %02d:%02d:%02d,%03d' %
+         (hh, mm, ss, ms,          hh2, mm2, ss2, ms2))
+    print(mission, frame)
+    print()
+    
+    SRT_frame += 1
+
 def frame_dump_raw(b, rate, f):
     print(full_frame_time(f))
 
@@ -493,7 +523,7 @@ def main(args):
 
     def usage(prog):
       msg = \
-          'usage: {prog} [-i] [-s <skipsec>] [-F] [-a|-p|-l|-r|-S] [-f <filter>]'\
+          'usage: {prog} [-i] [-s <skipsec>] [-F] [-a|-p|-l|-r|-S|-C] [-f <filter>]'\
           '[-b <base>|-y <year>] [-c <chan>]' \
           '<wav-file>\n' \
           '  Options for input\n' \
@@ -509,11 +539,13 @@ def main(args):
           '-b  Translate time for specific mission basis.\n' \
           '    (Available bases: {bases}).\n' \
           '-y  Translate time for specified year.\n' \
+          '  OUTPUT FORMATS\n' \
           '-l  Write Audacity-compatible labels on output.\n' \
           '-a  Write Adobe Audition markers on output.\n' \
           '-p  Write plain labels on output.\n' \
           '-r  Write raw labels on output.\n' \
           '-S  Write estimated file start time on output.\n' \
+          '-C  Write .SRT (closed captioning) labels on output.\n' \
           '  Frame filtering\n' \
           '-f  Filter frames according to pattern in <filter>\n' \
           '    Filter is any combination of the characters:\n' \
@@ -545,7 +577,7 @@ def main(args):
     year_basis_requested = False
     basis_name = 'a11'
 
-    opts, args = getopt.getopt(args, 'ac:s:Frpilhb:f:y:S')
+    opts, args = getopt.getopt(args, 'ac:s:Frpilhb:f:y:SC')
     for opt, val in opts:
         if opt == '-i':
             invert = True
@@ -561,6 +593,8 @@ def main(args):
             styles.add('plain')
         elif opt == '-S':
             styles.add('start')
+        elif opt == '-C':
+            styles.add('srt')
         elif opt == '-b':
             apollo_basis_requested = True
             basis_name = val.lower()
@@ -657,6 +691,8 @@ def main(args):
         dump = frame_dump_plain
     elif style == 'start':
         dump = frame_dump_estimate_start
+    elif style == 'srt':
+        dump = frame_dump_srt
     else:
         error('Internal error while selecting dump format.')
 
