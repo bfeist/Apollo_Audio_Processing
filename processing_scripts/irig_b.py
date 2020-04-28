@@ -18,6 +18,7 @@ from numpy import rint, zeros, empty
 import collections
 import functools
 import datetime
+import math
 from apollo import TimeBases, DatetimeGMTFromIRIG, ETFromDatetimeGMT
 from apollo import MissionTimeBasis
 from apollo import met_str, gmt_str
@@ -29,6 +30,9 @@ except ImportError:
 
 IRIGBFrame = collections.namedtuple('IRIGBFrame',
     'seconds minutes hours days years control sbs absolute_sample ok_sbs_tm')
+
+class StopProcessing(Exception):
+    pass
 
 #
 # For very accurate timing information across long time periods (weeks),
@@ -473,12 +477,23 @@ def frame_dump_adobe(b, rate, f):
     st = '%d:%d:%09.6f' % (h, m, s)
     print(met, st, '0:0:0', 'decimal', 'Cue', gmt, sep='\t')
 
+def frame_dump_estimate_start(b, rate, f):
+    dt = DatetimeGMTFromIRIG(b, f)
+    sec = float(f.absolute_sample.i) / rate
+    sec += float(f.absolute_sample.f) / rate
+    sec_f, sec_i = math.modf(sec)
+    sec_us = int(sec_f * 1000000)
+    delta = datetime.timedelta(0, sec_i, sec_us)
+    start_dt = dt - delta
+    print(start_dt, 'Z')
+    raise StopProcessing('done')
+
 def main(args):
     import getopt
 
     def usage(prog):
       msg = \
-          'usage: {prog} [-i] [-s <skipsec>] [-F] [-a|-p|-l|-r] [-f <filter>]'\
+          'usage: {prog} [-i] [-s <skipsec>] [-F] [-a|-p|-l|-r|-S] [-f <filter>]'\
           '[-b <base>|-y <year>] [-c <chan>]' \
           '<wav-file>\n' \
           '  Options for input\n' \
@@ -498,6 +513,7 @@ def main(args):
           '-a  Write Adobe Audition markers on output.\n' \
           '-p  Write plain labels on output.\n' \
           '-r  Write raw labels on output.\n' \
+          '-S  Write estimated file start time on output.\n' \
           '  Frame filtering\n' \
           '-f  Filter frames according to pattern in <filter>\n' \
           '    Filter is any combination of the characters:\n' \
@@ -529,7 +545,7 @@ def main(args):
     year_basis_requested = False
     basis_name = 'a11'
 
-    opts, args = getopt.getopt(args, 'ac:s:Frpilhb:f:y:')
+    opts, args = getopt.getopt(args, 'ac:s:Frpilhb:f:y:S')
     for opt, val in opts:
         if opt == '-i':
             invert = True
@@ -543,6 +559,8 @@ def main(args):
             styles.add('raw')
         elif opt == '-p':
             styles.add('plain')
+        elif opt == '-S':
+            styles.add('start')
         elif opt == '-b':
             apollo_basis_requested = True
             basis_name = val.lower()
@@ -637,6 +655,8 @@ def main(args):
         dump = frame_dump_raw
     elif style == 'plain':
         dump = frame_dump_plain
+    elif style == 'start':
+        dump = frame_dump_estimate_start
     else:
         error('Internal error while selecting dump format.')
 
@@ -685,7 +705,10 @@ def main(args):
         samples = frames[channel]
         if invert:
             samples = samples * -1.0
-        decoder_process(samples)
+        try:
+            decoder_process(samples)
+        except StopProcessing:
+            break
 
 if __name__ == '__main__':
     import sys
