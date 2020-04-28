@@ -79,7 +79,7 @@ def ChunkLocators_from_file(f, rewind=True, limit=None):
         if limit is not None:
             assert(f.tell() + 8 <= limit)
         hdr_b = f.read(8)
-        if hdr_b == '':
+        if hdr_b == b'':
             break
 
         #
@@ -119,8 +119,8 @@ class JWaveSource(object):
         wav = self._w = open(path, 'rb')
 
         file_header = WAVEHeader_from_src(wav)
-        self.assert_fmt(file_header.id == 'RIFF', 'Not RIFF')
-        self.assert_fmt(file_header.format == 'WAVE', 'Not WAVE')
+        self.assert_fmt(file_header.id == b'RIFF', 'Not RIFF')
+        self.assert_fmt(file_header.format == b'WAVE', 'Not WAVE')
 
         #
         # Quickly scan through all the chunks in the file, noting their
@@ -135,7 +135,7 @@ class JWaveSource(object):
         #
         # There needs to be a single fmt chunk.
         #
-        fmt_locators = locators_by_name.get('fmt ')
+        fmt_locators = locators_by_name.get(b'fmt ')
         self.assert_fmt(fmt_locators is not None, 'No "fmt " chunk.')
         self.assert_fmt(len(fmt_locators) == 1, 'Too many "fmt " chunks')
         fmt_locator = fmt_locators[0]
@@ -170,7 +170,7 @@ class JWaveSource(object):
         #
         # Find the data chunk.
         #
-        data_locators = locators_by_name.get('data')
+        data_locators = locators_by_name.get(b'data')
         self.assert_fmt(data_locators is not None, 'No "data" chunk.')
         self.assert_fmt(len(data_locators) == 1, 'Too many "data" chunks.')
         data_locator = data_locators[0]
@@ -306,7 +306,7 @@ class JWaveSink(object):
         #
         # Write the basic WAVE header.
         #
-        file_header = WAVEHeader('RIFF', WAVEHeader_size(), 'WAVE')
+        file_header = WAVEHeader(b'RIFF', WAVEHeader_size(), b'WAVE')
         start_pos = self._allocate_chunk(WAVEHeader_size())
         wav.write(WAVEHeader_to_bytes(file_header))
         assert(start_pos == 0)
@@ -320,7 +320,7 @@ class JWaveSink(object):
             BitsPerSample=depth * 8
         )
 
-        self.add_chunk('fmt ', FMTChunk_to_bytes(fmt_chunk))
+        self.add_chunk(b'fmt ', FMTChunk_to_bytes(fmt_chunk))
 
         assert(self.total_size == wav.tell())
 
@@ -368,7 +368,7 @@ class JWaveSink(object):
         self._w.write(data)
 
         if padding_needed:
-            self._w.write('\x00')
+            self._w.write(b'\x00')
 
         self.locators_by_name[name].append(ChunkLocator(data_pos, hdr))
 
@@ -383,7 +383,7 @@ class JWaveSink(object):
             #
             # We're need to create a data chunk now.
             #
-            pos = self.add_chunk('data', '')
+            pos = self.add_chunk(b'data', b'')
             self.data_size_offset = pos + 4
             self.data_size = 0
             self.data_allocated = True
