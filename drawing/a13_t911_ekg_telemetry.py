@@ -30,6 +30,8 @@ from jdsp.io import WaveSource
 from collections import namedtuple
 from numpy import around, cumsum, ones, rint
 import json
+import bisect
+import math
 
 FMTelemetryChannel = namedtuple('FMTelemetryChannel',
     'name frequency bandwidth lpf')
@@ -47,18 +49,65 @@ channels = [
     FMTelemetryChannel(name='LMP EKG',frequency=2300.0,bandwidth=200.0,lpf=15)
 ]
 
+def elapsed_to_str(elapsed):
+    h = int(elapsed / 3600.0)
+    m = int(elapsed / 60.0) % 60
+    f, i = math.modf(elapsed)
+    s = i % 60
+    
+    return '%03d:%02d:%02d.%06d' % (h, m, s, int(f * 1000000))
+
+def parse_HMS(s):
+    '''
+    Convert an x:y:z tuple into total seconds.
+    '''
+    parts = s.split(':')
+    assert(len(parts) == 3)
+    parts_f = [ float(f) for f in parts ]
+    return parts_f[0] * 3600.0 + parts_f[1] * 60 + parts_f[2]
+
+def timestamps(f):
+    '''
+    Iterate over the data from an Adobe audition timestamp file, producing
+    <filetime>, <missiontime>.
+    
+    Format -- <GET> <File-Time> <Duration> <timefmt> <marker-type> <note>
+    '''
+    for line in f:
+        parts = line.split('\t')
+        assert(len(parts) == 6)
+        get, ft, duration, timefmt, markertyp, note = parts
+        
+        mission_elapsed = parse_HMS(get)
+        file_elapsed = parse_HMS(ft)
+        yield file_elapsed, mission_elapsed
+
+def filetime_to_missiontime(ft, file_times, mission_times):
+    '''
+    Given a file position (in seconds, float), return the mission time (in
+    seconds, float).
+    '''
+    index = bisect.bisect(file_times, ft)
+    if index == 0:
+        raise Exception('No mission time available for given file time.')
+    delta = ft - file_times[index-1]
+    return mission_times[index-1] + delta
+
 def main(sys_args):
     import sys
     from argparse import ArgumentParser
 
     parser = ArgumentParser(
         description='Process Apollo biomed telemetry')
-    parser.add_argument('--skip', '-s', metavar='<skip-seconds>', type=float,
-        dest='skip',
+    parser.add_argument('--skip', '-s',
+        metavar='<skip-seconds>', type=float,dest='skip',
         help='Point at which to start processing, in seconds (floating point).')
-    parser.add_argument('--duration', '-d', metavar='<duration-seconds>',
-        type=float, dest='duration', default=60.0,
+    parser.add_argument('--duration', '-d',
+        metavar='<duration-seconds>', type=float, dest='duration', default=60.0,
         help='Number of seconds to process (floating point, default 60).')
+    parser.add_argument('--timestamps', '-t',
+        metavar='<timestamp-file>', type=str, dest='timestamps', default=None,
+        help='Adobe timestamp file, for meta-data preservation.')
     parser.add_argument('input', metavar='<input-wav>', type=str,
                         help='Audio file for input.')
     parser.add_argument('rate', metavar='<output-rate>', type=float, default=60,
@@ -81,6 +130,16 @@ def main(sys_args):
         input_source.set_position(skip_frames)
     else:
         skip_frames = 0
+
+    #
+    # Ingest the timestamp file into a searchable format.
+    #
+    if args.timestamps is not None:
+        file_times = []
+        mission_times = []
+        for file_time, mission_time in timestamps(open(args.timestamps, 'rt')):
+            file_times.append(file_time)
+            mission_times.append(mission_time)
 
     #
     # Configure each tone follower for the tone it is supposed to follow.
@@ -123,7 +182,16 @@ def main(sys_args):
     # actually represents.
     #
     output_input_time_s = float(skip_frames) / float(input_rate) - \
-        output_start_res_s 
+        output_start_res_s
+
+    #
+    # Convert to mission time, if possible.
+    #
+    if args.timestamps is not None:
+        output_start_mission_s = filetime_to_missiontime(output_input_time_s,
+            file_times, mission_times)
+    else:
+        output_start_mission_s = None
 
     output_offset = 0
     processed = 0
@@ -221,6 +289,9 @@ def main(sys_args):
         'source_file' : args.input,
         'channels' : d
     }
+    if output_start_mission_s:
+        et = elapsed_to_str(output_start_mission_s)
+        result['mission_et'] = et
 
     print(json.dumps(result))
 

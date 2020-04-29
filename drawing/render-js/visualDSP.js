@@ -27,8 +27,7 @@ const height = 1080;
 // TODO: Get this information from the data, when it is
 // available.
 //
-const GET_at_frame_0 =
-    "32h-37m-00.850s or 32:37:00:51 @" + sampleRate + " fps";
+const GET_at_frame_0 = "Display this frame at " + data['mission_et'];
 
 //
 // Base styling for all telemetry graphs.
