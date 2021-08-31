@@ -14,15 +14,15 @@ DA13_T911_HR2U_CH13.wav:
 	@echo "T911."
 	@echo "STOP"
 	
-$(EKG): DA13_T911_HR2U_CH13.wav T911.labels.tsv
-	#
-	# Skip to 55m:11s and retrieve 4m:3s of data
-	#
-	echo "var data =" > $@
-	python a13_t911_ekg_telemetry.py -s $(EKG_START_TIME_S) \
-	    -d $(DURATION) -t T911.labels.tsv \
-	    DA13_T911_HR2U_CH13.wav $(FPS) >> $@
-	echo ";" >> $@
+#$(EKG): DA13_T911_HR2U_CH13.wav T911.labels.tsv
+#	#
+#	# Skip to 55m:11s and retrieve 4m:3s of data
+#	#
+#	echo "var data =" > $@
+#	python a13_t911_ekg_telemetry.py -s $(EKG_START_TIME_S) \
+#	    -d $(DURATION) -t T911.labels.tsv \
+#	    DA13_T911_HR2U_CH13.wav $(FPS) >> $@
+#	echo ";" >> $@
 
 input.webm: $(EKG)
 	@echo "You need input.webm. Currently manual process. Load"
