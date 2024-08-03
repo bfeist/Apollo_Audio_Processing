@@ -42,7 +42,7 @@ class WaveSource(object):
         May return less frames than requested. If no input is available, returns
         None.'''
         data = self._w.readframes(frame_count)
-        if data == '':
+        if data == b'':
             return None
         
         channels = self._channels
@@ -50,11 +50,11 @@ class WaveSource(object):
         frame_count = len(data) // channels // depth
 
         if depth == 1:
-            samples = numpy.fromstring(data, dtype=numpy.int8)
+            samples = numpy.fromsbuffer(data, dtype=numpy.int8)
             samples = samples.reshape((channels, frame_count), order='F')
             samples = samples / float(0x80)
         elif depth == 2:
-            samples = numpy.fromstring(data, dtype=numpy.uint8)
+            samples = numpy.frombuffer(data, dtype=numpy.uint8)
             samples = samples.astype(numpy.int16)
             samples = (samples[1::2] << 8) + \
                       (samples[0::2]     )
@@ -62,7 +62,7 @@ class WaveSource(object):
             samples = samples / float(0x8000)
         else:
             assert(depth == 3)
-            samples = numpy.fromstring(data, dtype=numpy.uint8)
+            samples = numpy.frombuffer(data, dtype=numpy.uint8)
             samples = samples.astype(numpy.int32)
             samples = (samples[2::3] << 24) + \
                       (samples[1::3] << 16) + \
