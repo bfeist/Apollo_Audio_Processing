@@ -13,7 +13,7 @@
 import numpy as np
 from numpy import dot
 from scipy.signal import convolve
-from jdsp.util import gcd
+from math import gcd
 
 class RationalResampler(object):
     def __init__(self, in_rate, out_rate, quality=10):
@@ -58,7 +58,7 @@ class RationalResampler(object):
         space = np.linspace(-side, side, taps, endpoint=False)
         self.sinc = np.sinc(space)
         self.window = quality-1
-        self.history = np.zeros(self.window-1, dtype=np.float)
+        self.history = np.zeros(self.window-1, dtype=np.float64)
         self.in_stride = out_rate
         self.out_stride = in_rate
         self.offset = out_rate - in_rate
@@ -87,7 +87,7 @@ class RationalResampler(object):
             #
             # Construct the output.
             #
-            out = np.empty(self.output_possible(len(data)), dtype=np.float)
+            out = np.empty(self.output_possible(len(data)), dtype=np.float64)
         
         #
         # Cache some variables
@@ -102,12 +102,12 @@ class RationalResampler(object):
         # Prepare a long buffer with the previously saved samples concatenated
         # with the new input samples.
         #
-        buf = np.empty(window-1 + len(data), dtype=np.float)
+        buf = np.empty(window-1 + len(data), dtype=np.float64)
         buf[0:window-1] = self.history
         buf[window-1:] = data
         
         i = 0
-        for j in xrange(len(data)):
+        for j in range(len(data)):
 #            if offset == 0:
 #                #
 #                # When the input and output line up exactly, the

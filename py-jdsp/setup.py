@@ -23,5 +23,8 @@ setup(name='jdsp',
           'numpy(>=1.10)',
           'scipy(>=0.16.0)',
           'numba(>=0.40)'
-      ]
+      ],
+      extras_require={
+          'dev': [ 'pytest', ],
+      },
 )

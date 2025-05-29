@@ -10,7 +10,7 @@
 # Any use outside of ApolloAudio, and/or on material other than Apollo
 # Material is prohibited.
 #
-from numpy import zeros, float, empty
+from numpy import zeros, float64, empty
 from scipy.signal import convolve, firwin
 
 class HighPassFilter(object):
@@ -19,13 +19,13 @@ class HighPassFilter(object):
         self.taps = taps
         coeff = firwin(taps, cutoff_freq, pass_zero=False, fs=rate)
         self.coeff = coeff.astype(float)
-        self.history = zeros(self.taps-1, dtype=float)
+        self.history = zeros(self.taps-1, dtype=float64)
 
     def delay(self):
         return self.taps / 2
 
     def process(self, data):
-        buf = empty(len(data) + self.taps - 1, dtype=float)
+        buf = empty(len(data) + self.taps - 1, dtype=float64)
         buf[0:self.taps-1] = self.history
         buf[self.taps-1:] = data
         out = convolve(buf, self.coeff, mode='valid')
@@ -33,4 +33,4 @@ class HighPassFilter(object):
         return out
 
     def done(self):
-        return self.process(zeros(self.taps/2, dtype=float))
+        return self.process(zeros(self.taps/2, dtype=float64))

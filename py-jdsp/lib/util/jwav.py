@@ -14,7 +14,6 @@
 A WAV file reading and writing framework, replacing the standard Python
 'wave' module with one that can support extra meta-data chunks.
 '''
-import sys
 import struct
 import collections
 
