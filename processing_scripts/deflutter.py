@@ -106,7 +106,7 @@ def ReadTraceHeaderFromFile(f):
 
     headerv1 = TraceHeaderV1(*TraceHeaderV1Struct.unpack(h))
 
-    if headerv1.ident != 'dflt':
+    if headerv1.ident != b'dflt':
         raise Exception('Trace file has bad magic number.')
     if headerv1.version > 2:
         raise Exception('Incompatible trace header version.')
@@ -514,7 +514,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
 
 def InitializeTraceFile(f, skip, input_sample_rate, comment):
     header = TraceHeader(
-        ident='dflt',
+        ident=b'dflt',
         version=2,
         endian_check=0x0001020304050607,
         start_sample=skip,
