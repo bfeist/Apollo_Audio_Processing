@@ -140,5 +140,15 @@ TimeBases = {
     'a13' : MissionTimeBasis(
         all_balls=datetime(year=1970,month=4,day=11,hour=19,minute=13),
         year=1970
+    ),
+
+    #
+    # Gemini 8 range zero time is 16:41:02, March 16, 1966.
+    # That is day #xxx (one-based)
+    # (https://en.wikipedia.org/wiki/Gemini_8)
+    #
+    'g8': MissionTimeBasis(
+        all_balls=datetime(year=1966,month=3,day=16,hour=16,minute=41),
+        year=1966
     )
 }
