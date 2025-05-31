@@ -810,11 +810,11 @@ def UpdateBWF(source, source_name, dest, dest_name, dest_rate, dest_depth,
     If BWF data does not exist in source, a new history will be created in
     dest.
     '''
-    source_bwf_bytes = source._w.get_chunk('bext')
+    source_bwf_bytes = source._w.get_chunk(b'bext')
 
     now = time.time()
-    date_ref = time.strftime('%Y-%m-%d', time.gmtime(now)).encode('ascii')
-    time_ref = time.strftime('%H:%M:%S', time.gmtime(now)).encode('ascii')
+    date_ref = time.strftime('%Y-%m-%d', time.gmtime(now))
+    time_ref = time.strftime('%H:%M:%S', time.gmtime(now))
 
     if source_bwf_bytes is not None:
         bwf = BWFData_from_bytes(source_bwf_bytes)
@@ -824,8 +824,8 @@ def UpdateBWF(source, source_name, dest, dest_name, dest_rate, dest_depth,
             Description='Defluttered audio'.encode('ascii'),
             Originator='ApolloAudioProject'.encode('ascii'),
             OriginatorReference=('USAaP' + rand_code).encode('ascii'),
-            OriginationDate=date_ref,
-            OriginationTime=time_ref,
+            OriginationDate=date_ref.encode('ascii'),
+            OriginationTime=time_ref.encode('ascii'),
             TimeReferenceLow=0,
             TimeReferenceHigh=0,
             Version=2,
