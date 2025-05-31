@@ -740,7 +740,7 @@ def main(args):
         decoder_process = decoder.process
 
     int_delay = int(delay)
-    if math.abs(delay - int_delay) > 0.0001:
+    if abs(delay - int_delay) > 0.0001:
         raise Exception(
            f"Looks like the high-pass filter has a non-integer delay. FIX"
         )
