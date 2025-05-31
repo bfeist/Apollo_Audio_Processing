@@ -19,7 +19,7 @@ def lowpass(rate, bw):
     taps = int(rint(rate / bw))
     if taps % 2 == 0:
         taps += 1
-    return taps, firwin(taps, bw, pass_zero=True, nyq=rate).astype(float64)
+    return taps, firwin(taps, bw, pass_zero=True, fs=rate).astype(float64)
 
 class ToneFollower(object):
     def __init__(self, rate, tone_hz, drift_bandwidth_hz, flutter_bandwidth_hz):
