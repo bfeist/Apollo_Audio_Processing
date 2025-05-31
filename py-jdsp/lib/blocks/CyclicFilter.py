@@ -14,7 +14,7 @@ import numpy
 
 class CyclicFilter(object):
     def __init__(self, rate, cycle_freq, alpha):
-        self.cycle = rate / cycle_freq
+        self.cycle = rate // cycle_freq
         self.alpha = alpha
         self.history = numpy.zeros(self.cycle, dtype='float64')
         self.offset = 0

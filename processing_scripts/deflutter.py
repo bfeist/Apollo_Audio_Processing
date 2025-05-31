@@ -12,7 +12,6 @@
 # Any use outside of ApolloAudio, and/or on material other than Apollo
 # Material is prohibited.
 #
-from __future__ import print_function
 import numpy as np
 import sys
 import getopt
@@ -138,6 +137,23 @@ def ReadTraceHeaderFromFile(f):
 
     return header
 
+
+def assert_int_delay(delay_samples_f: float, purpose: str) -> int:
+    '''
+    Assert that a given float has no fractional part, mostly for
+    the purposes of confirming that a filter has been constructed
+    with the correct number of taps to ensure that its delay is some integer
+    number of samples.
+    '''
+    delay_samples = int(delay_samples_f)
+    if delay_samples_f - delay_samples != 0.0:
+        raise Exception(
+            f"Filter for {purpose} must be constructed to have a delay "
+            f"that is an integer number of samples. Got {delay_samples_f}"
+        )
+    return delay_samples
+
+
 def GetRespeedBlock(f):
     '''
     Read the next respeed block from a trace file.
@@ -221,7 +237,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             window_samples += 1
 
         tc_hp = HighPassFilter(tc_source.rate(), window_samples, 400.0)
-        timecode_delay = tc_hp.delay()
+        timecode_delay = assert_int_delay(tc_hp.delay(), "Timecode high pass")
 
         preprocess = lambda samples: tc_hp.process(samples*prescale)
         preprocess_done = lambda: tc_hp.done()
@@ -235,7 +251,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
     # incur so that we can process the right audio with the right
     # speed measurements.
     #
-    pll_delay = tc_follower.delay()
+    pll_delay = assert_int_delay(tc_follower.delay(), "Timecode PLL")
 
     #
     # Phase buffer, for global de-fluttering.
@@ -432,7 +448,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                         # to integrate this frame marker. Hopefully the next
                         # one we receive should be ok.
                         #
-                        yield 'warn', WarningBlock(start_sample.i, overall_rate,
+                        yield 'warn', WarningBlock(start_sample.i, tc_speed,
                             frame)
 
                         #
@@ -510,7 +526,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                 #
                 # Push a stop signal onto the frame queue.
                 #
-                queued_frames.append(None)
+                queued_commands.append(None)
 
 def InitializeTraceFile(f, skip, input_sample_rate, comment):
     header = TraceHeader(

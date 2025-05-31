@@ -23,7 +23,7 @@ class MatchedFilter(object):
         self.history = zeros(self.taps-1, dtype=float64)
 
     def delay(self):
-        return self.taps / 2
+        return (self.taps-1) / 2
 
     def process(self, data):
         buf = empty(len(data) + self.taps - 1, dtype=float64)
@@ -34,4 +34,4 @@ class MatchedFilter(object):
         return out
 
     def done(self):
-        return self.process(zeros(self.taps/2, dtype=float64))
+        return self.process(zeros(self.taps//2, dtype=float64))

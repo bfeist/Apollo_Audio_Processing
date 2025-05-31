@@ -38,8 +38,8 @@ class RationalResampler(object):
         # Normalize the rates.
         #
         d = gcd(in_rate, out_rate)
-        in_rate /= d
-        out_rate /= d
+        in_rate //= d
+        out_rate //= d
 
         #
         # Calculate the number of sinc taps required to
@@ -67,7 +67,7 @@ class RationalResampler(object):
         '''
         Return the delay, in input samples, of the resampler.
         '''
-        return self.window / 2
+        return (self.window-1) / 2
         
     def output_possible(self, input_len):
         #
