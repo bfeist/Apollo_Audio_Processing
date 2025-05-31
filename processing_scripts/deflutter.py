@@ -83,18 +83,18 @@ BWF_Audio_Extension = namedtuple('BWF_Audio_Extension',
 )
 BWF_Audio_Extension_struct = struct.Struct('<256s32s32s10s8sIIH64sHHHHH180s')
 
-def BWFData_from_bytes(b):
+def BWFData_from_bytes(b: bytes):
     assert(len(b) >= BWF_Audio_Extension_struct.size)
     fixed_part = b[:BWF_Audio_Extension_struct.size]
     fields = list(BWF_Audio_Extension_struct.unpack(fixed_part))
-    coding_history = b[BWF_Audio_Extension_struct.size:].rstrip('\x00')
+    coding_history = b[BWF_Audio_Extension_struct.size:].rstrip(b'\x00')
     fields.append(coding_history)
 
     return BWF_Audio_Extension(*fields)
 
-def BWFData_to_bytes(bwf):
+def BWFData_to_bytes(bwf: BWF_Audio_Extension):
     mandatory = BWF_Audio_Extension_struct.pack(*(bwf[:15]))
-    pad = '\x00' if len(bwf.CodingHistory) % 2 == 1 else ''
+    pad = b'\x00' if len(bwf.CodingHistory) % 2 == 1 else b''
     return mandatory + bwf.CodingHistory + pad
 
 def ReadTraceHeaderFromFile(f):
@@ -813,30 +813,30 @@ def UpdateBWF(source, source_name, dest, dest_name, dest_rate, dest_depth,
     source_bwf_bytes = source._w.get_chunk('bext')
 
     now = time.time()
-    date_ref = time.strftime('%Y-%m-%d', time.gmtime(now))
-    time_ref = time.strftime('%H:%M:%S', time.gmtime(now))
+    date_ref = time.strftime('%Y-%m-%d', time.gmtime(now)).encode('ascii')
+    time_ref = time.strftime('%H:%M:%S', time.gmtime(now)).encode('ascii')
 
     if source_bwf_bytes is not None:
         bwf = BWFData_from_bytes(source_bwf_bytes)
     else:
-        rand_code = os.urandom(12).encode('hex')
+        rand_code = os.urandom(12).hex()
         bwf = BWF_Audio_Extension(
-            Description='Defluttered audio',
-            Originator='ApolloAudioProject',
-            OriginatorReference='USAaP' + rand_code,
+            Description='Defluttered audio'.encode('ascii'),
+            Originator='ApolloAudioProject'.encode('ascii'),
+            OriginatorReference=('USAaP' + rand_code).encode('ascii'),
             OriginationDate=date_ref,
             OriginationTime=time_ref,
             TimeReferenceLow=0,
             TimeReferenceHigh=0,
             Version=2,
-            UMID='',
+            UMID=''.encode('ascii'),
             LoudnessValue=0,
             LoudnessRange=0,
             MaxTruePeakLevel=0,
             MaxMomentaryLoudness=0,
             MaxShortTermLoudness=0,
-            Reserved='',
-            CodingHistory=''
+            Reserved=''.encode('ascii'),
+            CodingHistory=''.encode('ascii')
         )
 
     resampler_meta = \
@@ -870,7 +870,7 @@ def UpdateBWF(source, source_name, dest, dest_name, dest_rate, dest_depth,
     )
 
     bwf_bytes = BWFData_to_bytes(new_bwf)
-    dest._w.add_chunk('bext', bwf_bytes)
+    dest._w.add_chunk(b'bext', bwf_bytes)
 
 def main(prog, args):
     prog, args = sys.argv[0], sys.argv[1:]
