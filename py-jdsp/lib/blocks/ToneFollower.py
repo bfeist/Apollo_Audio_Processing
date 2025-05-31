@@ -171,4 +171,4 @@ class ToneFollower(object):
         '''
         Finish processing by flushing all queued samples.
         '''
-        return self.process(zeros(self.delay()))
+        return self.process(zeros(int(self.delay())))
