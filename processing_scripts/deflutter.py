@@ -179,7 +179,7 @@ def RespeedBlocksFromFile(header, f):
     while True:
         b = GetRespeedBlock(f)
         if b is None:
-            raise StopIteration()
+            return
         yield 'rspd', b
 
 def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
