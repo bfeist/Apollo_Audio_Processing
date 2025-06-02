@@ -12,6 +12,13 @@ get everything you need.
       cd py-jdsp
       sudo pip install .
 
+### Recent gotchas
+
+* 2025-05-29: scipy, one of the dependencies required to set up this code,
+  requires a Fortran compiler. If you encounter an error while running the
+  pip install step above, try installing a Fortran compiler (such as
+  `gfortran`) on your system and try the pip install step again.
+
 ## IRIG-B processing / tagging
 
 You can use `irig_b.py` to inspect an IRIG-B timecode stream and generate labels for

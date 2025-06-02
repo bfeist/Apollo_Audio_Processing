@@ -663,7 +663,7 @@ def main(args):
         if skip_secs < 0.0:
             skip_secs = total_secs + skip_secs
 
-        skip = skip_secs * rate
+        skip = int(skip_secs * rate)
 
         if skip >= total_samples:
             error('Skip setting is too big. Total size is {:f} seconds'.format(
@@ -739,7 +739,12 @@ def main(args):
         delay = 0
         decoder_process = decoder.process
 
-    decoder.set_sample_number(skip - delay)
+    int_delay = int(delay)
+    if abs(delay - int_delay) > 0.0001:
+        raise Exception(
+           f"Looks like the high-pass filter has a non-integer delay. FIX"
+        )
+    decoder.set_sample_number(skip - int_delay)
 
     src._w.setpos(skip)
 

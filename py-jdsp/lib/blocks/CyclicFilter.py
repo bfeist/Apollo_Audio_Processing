@@ -14,9 +14,9 @@ import numpy
 
 class CyclicFilter(object):
     def __init__(self, rate, cycle_freq, alpha):
-        self.cycle = rate / cycle_freq
+        self.cycle = rate // cycle_freq
         self.alpha = alpha
-        self.history = numpy.zeros(self.cycle, dtype='float')
+        self.history = numpy.zeros(self.cycle, dtype='float64')
         self.offset = 0
     
     def delay(self):
@@ -25,7 +25,7 @@ class CyclicFilter(object):
     def process(self, data, out=None):
         ld = len(data)
         if out is None:
-            out = numpy.empty(ld, dtype='float')
+            out = numpy.empty(ld, dtype='float64')
         
         #
         # Try to complete the current remainder of the cyclic
@@ -64,5 +64,5 @@ class CyclicFilter(object):
     def done(self, out=None):
         '''This block induces no delay, so there is nothing to do.'''
         if out is None:
-            out = numpy.empty(0, dtype='float')
+            out = numpy.empty(0, dtype='float64')
         return out

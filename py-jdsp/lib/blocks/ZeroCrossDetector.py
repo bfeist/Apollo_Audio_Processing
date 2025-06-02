@@ -25,7 +25,7 @@ class ZeroCrossDetector(object):
         # Prepare a buffer of samples, including the last sample given in the
         # previous process.
         #
-        data = prepend(data, self.last, 'float')
+        data = prepend(data, self.last, 'float64')
 
         #
         # Find those points in the buffer which are positive.
@@ -78,7 +78,7 @@ class ZeroCrossDetector(object):
         if n > 0:
             return out, fractions
         else:
-            return numpy.empty(0, dtype='float'), numpy.empty(0, dtype='float')
+            return numpy.empty(0, dtype='int32'), numpy.empty(0, dtype='float64')
 
     @staticmethod
     @jit(nopython=True)

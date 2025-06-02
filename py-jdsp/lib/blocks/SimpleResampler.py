@@ -10,7 +10,7 @@
 # Any use outside of ApolloAudio, and/or on material other than Apollo
 # Material is prohibited.
 #
-from jdsp.util import gcd
+from math import gcd
 import numpy
 
 class SimpleResampler(object):

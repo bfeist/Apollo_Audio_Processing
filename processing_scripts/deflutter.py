@@ -12,7 +12,6 @@
 # Any use outside of ApolloAudio, and/or on material other than Apollo
 # Material is prohibited.
 #
-from __future__ import print_function
 import numpy as np
 import sys
 import getopt
@@ -84,18 +83,18 @@ BWF_Audio_Extension = namedtuple('BWF_Audio_Extension',
 )
 BWF_Audio_Extension_struct = struct.Struct('<256s32s32s10s8sIIH64sHHHHH180s')
 
-def BWFData_from_bytes(b):
+def BWFData_from_bytes(b: bytes):
     assert(len(b) >= BWF_Audio_Extension_struct.size)
     fixed_part = b[:BWF_Audio_Extension_struct.size]
     fields = list(BWF_Audio_Extension_struct.unpack(fixed_part))
-    coding_history = b[BWF_Audio_Extension_struct.size:].rstrip('\x00')
+    coding_history = b[BWF_Audio_Extension_struct.size:].rstrip(b'\x00')
     fields.append(coding_history)
 
     return BWF_Audio_Extension(*fields)
 
-def BWFData_to_bytes(bwf):
+def BWFData_to_bytes(bwf: BWF_Audio_Extension):
     mandatory = BWF_Audio_Extension_struct.pack(*(bwf[:15]))
-    pad = '\x00' if len(bwf.CodingHistory) % 2 == 1 else ''
+    pad = b'\x00' if len(bwf.CodingHistory) % 2 == 1 else b''
     return mandatory + bwf.CodingHistory + pad
 
 def ReadTraceHeaderFromFile(f):
@@ -106,7 +105,7 @@ def ReadTraceHeaderFromFile(f):
 
     headerv1 = TraceHeaderV1(*TraceHeaderV1Struct.unpack(h))
 
-    if headerv1.ident != 'dflt':
+    if headerv1.ident != b'dflt':
         raise Exception('Trace file has bad magic number.')
     if headerv1.version > 2:
         raise Exception('Incompatible trace header version.')
@@ -138,6 +137,23 @@ def ReadTraceHeaderFromFile(f):
 
     return header
 
+
+def assert_int_delay(delay_samples_f: float, purpose: str) -> int:
+    '''
+    Assert that a given float has no fractional part, mostly for
+    the purposes of confirming that a filter has been constructed
+    with the correct number of taps to ensure that its delay is some integer
+    number of samples.
+    '''
+    delay_samples = int(delay_samples_f)
+    if delay_samples_f - delay_samples != 0.0:
+        raise Exception(
+            f"Filter for {purpose} must be constructed to have a delay "
+            f"that is an integer number of samples. Got {delay_samples_f}"
+        )
+    return delay_samples
+
+
 def GetRespeedBlock(f):
     '''
     Read the next respeed block from a trace file.
@@ -163,7 +179,7 @@ def RespeedBlocksFromFile(header, f):
     while True:
         b = GetRespeedBlock(f)
         if b is None:
-            raise StopIteration()
+            return
         yield 'rspd', b
 
 def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
@@ -221,7 +237,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
             window_samples += 1
 
         tc_hp = HighPassFilter(tc_source.rate(), window_samples, 400.0)
-        timecode_delay = tc_hp.delay()
+        timecode_delay = assert_int_delay(tc_hp.delay(), "Timecode high pass")
 
         preprocess = lambda samples: tc_hp.process(samples*prescale)
         preprocess_done = lambda: tc_hp.done()
@@ -235,7 +251,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
     # incur so that we can process the right audio with the right
     # speed measurements.
     #
-    pll_delay = tc_follower.delay()
+    pll_delay = assert_int_delay(tc_follower.delay(), "Timecode PLL")
 
     #
     # Phase buffer, for global de-fluttering.
@@ -432,7 +448,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                         # to integrate this frame marker. Hopefully the next
                         # one we receive should be ok.
                         #
-                        yield 'warn', WarningBlock(start_sample.i, overall_rate,
+                        yield 'warn', WarningBlock(start_sample.i, tc_speed,
                             frame)
 
                         #
@@ -510,11 +526,11 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                 #
                 # Push a stop signal onto the frame queue.
                 #
-                queued_frames.append(None)
+                queued_commands.append(None)
 
 def InitializeTraceFile(f, skip, input_sample_rate, comment):
     header = TraceHeader(
-        ident='dflt',
+        ident=b'dflt',
         version=2,
         endian_check=0x0001020304050607,
         start_sample=skip,
@@ -794,7 +810,7 @@ def UpdateBWF(source, source_name, dest, dest_name, dest_rate, dest_depth,
     If BWF data does not exist in source, a new history will be created in
     dest.
     '''
-    source_bwf_bytes = source._w.get_chunk('bext')
+    source_bwf_bytes = source._w.get_chunk(b'bext')
 
     now = time.time()
     date_ref = time.strftime('%Y-%m-%d', time.gmtime(now))
@@ -803,24 +819,24 @@ def UpdateBWF(source, source_name, dest, dest_name, dest_rate, dest_depth,
     if source_bwf_bytes is not None:
         bwf = BWFData_from_bytes(source_bwf_bytes)
     else:
-        rand_code = os.urandom(12).encode('hex')
+        rand_code = os.urandom(12).hex()
         bwf = BWF_Audio_Extension(
-            Description='Defluttered audio',
-            Originator='ApolloAudioProject',
-            OriginatorReference='USAaP' + rand_code,
-            OriginationDate=date_ref,
-            OriginationTime=time_ref,
+            Description='Defluttered audio'.encode('ascii'),
+            Originator='ApolloAudioProject'.encode('ascii'),
+            OriginatorReference=('USAaP' + rand_code).encode('ascii'),
+            OriginationDate=date_ref.encode('ascii'),
+            OriginationTime=time_ref.encode('ascii'),
             TimeReferenceLow=0,
             TimeReferenceHigh=0,
             Version=2,
-            UMID='',
+            UMID=''.encode('ascii'),
             LoudnessValue=0,
             LoudnessRange=0,
             MaxTruePeakLevel=0,
             MaxMomentaryLoudness=0,
             MaxShortTermLoudness=0,
-            Reserved='',
-            CodingHistory=''
+            Reserved=''.encode('ascii'),
+            CodingHistory=''.encode('ascii')
         )
 
     resampler_meta = \
@@ -854,7 +870,7 @@ def UpdateBWF(source, source_name, dest, dest_name, dest_rate, dest_depth,
     )
 
     bwf_bytes = BWFData_to_bytes(new_bwf)
-    dest._w.add_chunk('bext', bwf_bytes)
+    dest._w.add_chunk(b'bext', bwf_bytes)
 
 def main(prog, args):
     prog, args = sys.argv[0], sys.argv[1:]

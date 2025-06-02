@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='jdsp',
-      version='0.9.10.0',
+      version='0.10.0.0',
       py_modules=[
           'jdsp.util.DelayBuffer',
           'jdsp.util.gcd',
@@ -23,5 +23,8 @@ setup(name='jdsp',
           'numpy(>=1.10)',
           'scipy(>=0.16.0)',
           'numba(>=0.40)'
-      ]
+      ],
+      extras_require={
+          'dev': [ 'pytest', ],
+      },
 )

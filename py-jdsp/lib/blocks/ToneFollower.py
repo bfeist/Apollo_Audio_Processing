@@ -11,15 +11,15 @@
 # Material is prohibited.
 #
 from numpy import linspace, empty, zeros, pi, exp, multiply, conj, angle
-from numpy import empty_like, float, complex64, rint
+from numpy import empty_like, float64, complex64, rint
 from scipy.signal import convolve, firwin
-from ..util import gcd
+from math import gcd
 
 def lowpass(rate, bw):
     taps = int(rint(rate / bw))
     if taps % 2 == 0:
         taps += 1
-    return taps, firwin(taps, bw, pass_zero=True, nyq=rate).astype(float)
+    return taps, firwin(taps, bw, pass_zero=True, fs=rate).astype(float64)
 
 class ToneFollower(object):
     def __init__(self, rate, tone_hz, drift_bandwidth_hz, flutter_bandwidth_hz):
@@ -54,7 +54,7 @@ class ToneFollower(object):
         # Set up a post-FM demodulation filter.
         #
         self.angle_taps, self.acoeff = lowpass(rate, flutter_bandwidth_hz)
-        self.ahistory = zeros(self.angle_taps-1, dtype=float)
+        self.ahistory = zeros(self.angle_taps-1, dtype=float64)
 
         #
         # FM demodulation requires one sample of history.
@@ -125,7 +125,7 @@ class ToneFollower(object):
         #
         # Set up an FM filter buffer.
         #
-        demodbuf = empty(len(data) + self.angle_taps - 1, dtype=float)
+        demodbuf = empty(len(data) + self.angle_taps - 1, dtype=float64)
         demodbuf[0:self.angle_taps-1] = self.ahistory
 
         #
@@ -171,4 +171,4 @@ class ToneFollower(object):
         '''
         Finish processing by flushing all queued samples.
         '''
-        return self.process(zeros(self.delay()))
+        return self.process(zeros(int(self.delay())))

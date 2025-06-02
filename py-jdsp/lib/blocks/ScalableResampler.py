@@ -12,12 +12,11 @@
 #
 import numpy as np
 from numpy import dot
-from scipy.signal import convolve
-from jdsp.util import gcd
+from math import gcd
 from numba import jit
 
 class ScalableResampler(object):
-    def __init__(self, in_rate, out_rate, speed_quantum=320, quality=50):
+    def __init__(self, in_rate: int, out_rate: int, speed_quantum: int=320, quality: int=50):
         '''
         Rational upsampler.
         
@@ -52,8 +51,8 @@ class ScalableResampler(object):
         # Normalize the rates.
         #
         d = gcd(in_rate, out_rate)
-        in_rate /= d
-        out_rate /= d
+        in_rate //= d
+        out_rate //= d
 
         #
         # Bring up the rates if they don't support the speed quantum
@@ -103,8 +102,8 @@ class ScalableResampler(object):
         lanczos_space = np.linspace(-1, 1, taps, endpoint=False)
         self.sinc = np.sinc(space) * np.sinc(lanczos_space)
         self.window = len(self.sinc)
-        self.history = np.zeros(1, dtype=np.float)
-        self.history_d = np.array([taps - out_rate], dtype=np.int)
+        self.history = np.zeros(1, dtype=np.float64)
+        self.history_d = np.array([taps - out_rate], dtype=np.int32)
         self.in_stride = out_rate
         self.out_stride = in_rate
         self.residual = 0.0
@@ -122,7 +121,7 @@ class ScalableResampler(object):
         else:
             delay = 0
         new_sample_deltas =  delay + self.residual + scale * self.in_stride
-        rounded = np.rint(new_sample_deltas).astype(np.int)
+        rounded = np.rint(new_sample_deltas).astype(np.int32)
         residual = new_sample_deltas[-1] - rounded[-1]
         return residual, rounded
 
@@ -201,11 +200,11 @@ class ScalableResampler(object):
         oldlen = len(self.history)
         newlen = oldlen + 1
 
-        data = np.empty(newlen, dtype=np.float)
+        data = np.empty(newlen, dtype=np.float64)
         data[:oldlen] = self.history
         data[oldlen:] = 0.0
 
-        deltas = np.empty(newlen, dtype=np.int)
+        deltas = np.empty(newlen, dtype=np.int32)
         deltas[:oldlen] = self.history_d
         deltas[oldlen:] = int(fake_delta)
 
@@ -223,8 +222,8 @@ class ScalableResampler(object):
         # Set up some working buffers.
         #
         total_len = len(self.history) + len(data)
-        deltas = np.empty(total_len, dtype=np.int)
-        buf = np.empty(total_len, dtype=np.float)
+        deltas = np.empty(total_len, dtype=np.int32)
+        buf = np.empty(total_len, dtype=np.float64)
 
         #
         # From the input schedule, calculate a sinc stride schedule.
@@ -272,7 +271,7 @@ class ScalableResampler(object):
             #
             # Construct the output.
             #
-            out = np.empty(max(output_samples,0),dtype=np.float)
+            out = np.empty(max(output_samples,0),dtype=np.float64)
 
         if output_samples <= 0:
             #
