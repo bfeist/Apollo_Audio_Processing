@@ -413,10 +413,17 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                     # seconds long.
                     #
                     # First, determine the number of desired samples between
-                    # the timecode frames. This is simply the sample rate times
-                    # the timecode differences, in seconds.
+                    # the timecode frames. Assuming that there have not been
+                    # any discontinuities in the timecode signal, the nominal
+                    # number of seconds between the two points can be inferred
+                    # by counting the samples between them, scaling the result
+                    # by the inverse of the overall observed carrier rate
+                    # relative to the nominal rate, then dividing by the nominal
+                    # source rate.
                     #
-                    seconds = float(samples) / tc_source.rate()
+                    relative_carrier_speed = np.average(carrier_speed)
+                    observed_rate = tc_source.rate() * relative_carrier_speed
+                    seconds = float(samples) / observed_rate
                     nominal_seconds = np.rint(seconds)
                     desired_samples = nominal_seconds * tc_source.rate()
 
@@ -464,7 +471,7 @@ def RespeedBlocksFromTimecode(tc_source, prescale, skip, check_overflow,
                     # zero, allowing us to incorporate the fact that we know
                     # the timecode into the result.
                     #
-                    flutter_speed = carrier_speed - np.average(carrier_speed)
+                    flutter_speed = carrier_speed - relative_carrier_speed
 
                     #
                     # Adjust the flutter depth now, if requested.
