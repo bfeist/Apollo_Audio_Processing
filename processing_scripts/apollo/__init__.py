@@ -1,5 +1,5 @@
 #
-# Copyright 2019 Jeremy Cooper.
+# Copyright 2019, 2026 Jeremy Cooper.
 #
 # This file is unpublished proprietary source code. It is licensed
 # for use by members of the the Apollo Audio project ("ApolloAudio"),
@@ -140,6 +140,17 @@ TimeBases = {
     'a13' : MissionTimeBasis(
         all_balls=datetime(year=1970,month=4,day=11,hour=19,minute=13),
         year=1970
+    ),
+
+    #
+    # Apollo 14 range zero time is 21:03:02, January 31, 1971.
+    # (https://www.nasa.gov/wp-content/uploads/2023/04/sp-4029.pdf page 176)
+    #
+    # That is day #31 (one-based)
+    #
+    'a14' : MissionTimeBasis(
+        all_balls=datetime(year=1971,month=1,day=31,hour=21,minute=3,second=2),
+        year=1971
     ),
 
     #
