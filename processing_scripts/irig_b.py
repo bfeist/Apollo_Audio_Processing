@@ -706,7 +706,7 @@ def main(args):
     else:
         error('Internal error while selecting dump format.')
 
-    frame_filter_func = None
+    frame_filter_funcs = []
     if frame_filter_expr is not None:
         for c in frame_filter_expr:
             if c == 'y':
@@ -716,16 +716,11 @@ def main(args):
             else:
                 error('Unknown frame filter type \'{}\'.'.format(c))
 
-            if frame_filter_func is None:
-                frame_filter_func = next_filter
-            else:
-                frame_filter_func = \
-                     lambda  a, b, c: next_filter(a, b, c) and \
-                                      frame_filter_func(a, b, c)
+            frame_filter_funcs.append(next_filter)
 
-    if frame_filter_func is not None:
+    if frame_filter_funcs:
         def callback(frame):
-            if frame_filter_func(mission_basis, rate, frame):
+            if all(( f(mission_basis, rate, frame) for f in frame_filter_funcs)):
                 dump(mission_basis, rate, frame)
     else:
         callback = functools.partial(dump, mission_basis, rate)
