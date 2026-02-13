@@ -123,6 +123,15 @@ A database of missions and their time bases.
 '''
 TimeBases = {
     #
+    # Apollo 9 range zero time is 16:00:00 GMT, March 3, 1969
+    # That is day #62 (one-based)
+    #
+    'a9' : MissionTimeBasis(
+        all_balls=datetime(year=1969,month=3,day=3,hour=16,minute=0),
+        year=1969
+    ),
+
+    #
     # Apollo 11 range zero time is 13:32:00, July 16, 1969
     # That is day #197 (one-based)
     #

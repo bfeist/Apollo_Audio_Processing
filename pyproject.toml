@@ -1,0 +1,17 @@
+[project]
+name = "apollo-audio-processing"
+version = "0.1.0"
+description = "Apollo audio processing and IRIG-B timecode analysis tools"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.10",
+    "scipy>=0.16.0",
+    "numba>=0.40",
+    "svgwrite",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
