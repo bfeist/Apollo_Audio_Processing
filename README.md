@@ -4,20 +4,22 @@ Welcome to the Apollo audio processing repository.
 
 ## Prerequisites / dependencies
 
-The processing scripts in thie repository depend on a common DSP library
-that I have written, `jdsp`. You'll need to have `jdsp` installed in your Python
-environment before you begin. It's very easy to do, just use 'pip' and you'll
-get everything you need.
+First, make sure you have `uv` installed. Then create a virtual environment and install dependencies:
 
-      cd py-jdsp
-      sudo pip install .
+      uv venv
+      source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+      uv pip install -r requirements.txt
+      uv pip install ./py-jdsp
+
+The processing scripts in this repository also depend on a common DSP library
+that I have written, `jdsp`, which is installed in the final step above.
 
 ### Recent gotchas
 
 * 2025-05-29: scipy, one of the dependencies required to set up this code,
   requires a Fortran compiler. If you encounter an error while running the
-  pip install step above, try installing a Fortran compiler (such as
-  `gfortran`) on your system and try the pip install step again.
+  installation step above, try installing a Fortran compiler (such as
+  `gfortran`) on your system and try the installation step again.
 
 ## IRIG-B processing / tagging
 
